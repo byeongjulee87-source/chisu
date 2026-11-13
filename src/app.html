@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>치수경제성 에이전트</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/shpjs@4.0.4/dist/shp.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<!--LIBS-->
+<style>
+:root{--bg:#f2f5fa;--card:#ffffff;--ink:#0f1b2d;--mute:#5d6b80;--line:#e3e8f0;--brand:#0b5cff;--brand2:#e9f0ff;--navy:#0b2545;--teal:#13a89e;
+  --good:#0e8a4c;--goodbg:#e3f6ec;--bad:#c4321f;--badbg:#fdecea;--warn:#fff5d6;--shadow:0 1px 2px rgba(16,24,40,.05),0 6px 20px rgba(16,24,40,.06)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0d1117;--card:#161b24;--ink:#e8edf5;--mute:#9aa6b8;--line:#263041;--brand:#5d93ff;--brand2:#18233a;--navy:#081627;
+  --good:#4fd18f;--goodbg:#143021;--bad:#ff8a7d;--badbg:#3a1c1b;--warn:#352e19;--shadow:none;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d1117;--card:#161b24;--ink:#e8edf5;--mute:#9aa6b8;--line:#263041;--brand:#5d93ff;--brand2:#18233a;--navy:#081627;--good:#4fd18f;--goodbg:#143021;--bad:#ff8a7d;--badbg:#3a1c1b;--warn:#352e19;--shadow:none;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Noto Sans KR","Malgun Gothic",system-ui,sans-serif}
+.hero{background:linear-gradient(120deg,var(--navy) 0%,#123a73 55%,#0b5cff 100%);color:#fff;padding:34px 20px 70px}
+.hero .in{max-width:1120px;margin:0 auto}
+.hero .badge{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:3px 12px;font-size:12px;letter-spacing:.02em}
+.hero h1{font-size:30px;margin:12px 0 6px;font-weight:800;letter-spacing:-.02em}
+.hero p{margin:0;opacity:.85;max-width:700px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;margin-top:18px}
+.flow span{background:rgba(255,255,255,.12);border-radius:8px;padding:6px 11px;font-size:12.5px}
+.flow i{opacity:.6;font-style:normal;padding:6px 0}
+.wrap{max-width:1120px;margin:-46px auto 0;padding:0 16px 70px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{font-size:16px;margin:0 0 4px;font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 .n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;font-size:12.5px}
+.hint{color:var(--mute);font-size:13px;margin:0 0 14px}
+#drop{border:2px dashed #9db8ff;border-radius:14px;background:var(--brand2);padding:30px 16px;text-align:center;cursor:pointer;transition:.15s}
+#drop.over{border-color:var(--brand);transform:scale(1.005)}
+#drop svg{width:40px;height:40px;color:var(--brand)}
+#drop b{display:block;font-size:17px;margin:6px 0 2px}
+#drop small{color:var(--mute)}
+.need{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr));gap:10px;margin-top:16px}
+.need div{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start}
+.need .st{flex:0 0 22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;background:var(--line);color:var(--mute)}
+.need .ok .st{background:var(--good);color:#fff}
+.need .opt .st{background:var(--brand2);color:var(--brand)}
+.need b{display:block;font-size:13.5px}
+.need small{color:var(--mute);font-size:12px;display:block;line-height:1.45}
+.need .file{color:var(--brand);font-size:12px;word-break:break-all}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:500}
+button:hover{border-color:var(--brand);color:var(--brand)}
+button.main{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700;padding:12px 22px;font-size:15px}
+button.main:hover{filter:brightness(1.07);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+.files{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:12px}
+.files td{border-top:1px solid var(--line);padding:6px 6px}
+.files select,.files input{font:inherit;font-size:12.5px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.chip{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11.5px;background:var(--brand2);color:var(--brand)}
+.prog{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:14px;display:none}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--brand));transition:width .3s}
+#log{white-space:pre-wrap;font-size:12.5px;color:var(--mute);margin-top:10px}
+#res{display:none}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr));gap:10px;margin-bottom:16px}
+.kpi div{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi small{color:var(--mute);font-size:12px;display:block}
+.kpi strong{font-size:24px;font-weight:800;letter-spacing:-.02em}
+.kpi em{font-style:normal;color:var(--mute);font-size:12px;margin-left:4px}
+.dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:10px;margin-bottom:18px}
+.dl button{display:flex;gap:12px;align-items:center;text-align:left;padding:14px 16px;border-radius:12px}
+.dl button svg{flex:0 0 30px;height:30px}
+.dl button b{display:block}.dl button small{color:var(--mute);font-weight:400}
+.dl button.primary{background:var(--navy);border-color:var(--navy);color:#fff}.dl button.primary small{color:#c8d3e6}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:16px;margin-bottom:16px}
+.panel{border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+.panel h3{font-size:13.5px;margin:0 0 8px}
+canvas{width:100%;height:auto;border-radius:8px;background:var(--bg);display:block}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--mute);margin-top:6px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.tw{overflow:auto;max-height:60vh;border:1px solid var(--line);border-radius:12px}
+table.t{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+table.t th,table.t td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:right}
+table.t th{background:var(--brand2);text-align:center;font-weight:600;position:sticky;top:0}
+table.t td.l,table.t th.l{text-align:left}
+.ok{color:var(--good);font-weight:700}.ng{color:var(--bad);font-weight:700}
+.tag{border-radius:99px;padding:2px 9px;font-size:11.5px;font-weight:600}.tag.ok{background:var(--goodbg)}.tag.ng{background:var(--badbg)}
+.warn{background:var(--warn);border-radius:10px;padding:9px 12px;font-size:12.5px;margin-top:10px}
+details summary{cursor:pointer;font-weight:700}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:4px 22px;margin-top:12px}
+.form label{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px dashed var(--line);padding:5px 0;font-size:13px}
+.form input,.form select{font:inherit;font-size:13px;width:140px;padding:4px 7px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}
+.form input[type=checkbox]{width:auto}
+.foot{color:var(--mute);font-size:12px;text-align:center;margin-top:24px}
+svg.bc text{fill:var(--mute);font-size:11px}
+</style>
+</head>
+<body>
+<div class="hero"><div class="in">
+  <span class="badge">하천기본계획 · 치수경제성 자동화</span>
+  <h1>치수경제성 에이전트</h1>
+  <p>개수 전 측점별 홍수위와 수치지도를 올리면 하도버퍼링으로 침수심도를 만들고, K-FRM(또는 다차원법) 피해액부터 B/C·투자우선순위, 치수경제성 보고서까지 한 번에 만듭니다.</p>
+  <div class="flow"><span>① 하도버퍼링</span><i>›</i><span>② 침수심도</span><i>›</i><span>③ K-FRM 피해액</span><i>›</i><span>④ 연평균편익·B/C·NPV·IRR</span><i>›</i><span>⑤ AHP 우선순위</span><i>›</i><span>⑥ 보고서·엑셀</span></div>
+</div></div>
+
+<div class="wrap">
+  <div class="card">
+    <h2><span class="n">1</span>자료 올리기</h2>
+    <p class="hint">필요한 파일을 한꺼번에 끌어놓으면 종류를 알아서 나눕니다. 좌표계가 달라도 자동으로 맞춥니다.</p>
+    <div id="drop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+      <b>파일을 여기에 끌어놓거나 눌러서 고르세요</b>
+      <small>.xlsx · .csv · .zip(SHP) · .dxf · .hwpx — 여러 개 한꺼번에</small>
+      <input type="file" id="pick" multiple accept=".xlsx,.xls,.csv,.zip,.dxf,.hwpx" hidden>
+    </div>
+    <div class="need" id="need"></div>
+    <table class="files" id="files"></table>
+    <div class="row">
+      <button id="bTpl">입력양식 내려받기</button>
+      <button id="bSample">상두천 예시로 해보기</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>분석</h2>
+    <p class="hint">하도버퍼링 → 구획 집계 → 피해액·편익 → 경제성 → 투자우선순위 순서로 계산합니다.</p>
+    <button class="main" id="bRun" disabled>분석하고 보고서 만들기</button>
+    <div class="prog" id="prog"><i></i></div>
+    <div id="log"></div>
+  </div>
+
+  <div class="card" id="res">
+    <h2><span class="n">3</span>결과</h2>
+    <p class="hint" id="resHint"></p>
+    <div class="kpi" id="kpi"></div>
+    <div class="dl">
+      <button class="primary" id="bHwp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg><span><b>치수경제성 보고서</b><small>경제성 분석 · 투자우선순위 (.hwpx)</small></span></button>
+      <button id="bXls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg><span><b>결과 엑셀</b><small>요약·피해액·편익·경제성·우선순위·현금흐름</small></span></button>
+      <button id="bGis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span><b>침수면적표</b><small>지구·빈도·침수심·토지피복별 면적</small></span></button>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3 id="mapTitle">침수심도</h3><canvas id="map" width="640" height="420"></canvas>
+        <div class="legend" id="mapLeg"></div></div>
+      <div class="panel"><h3>지구별 B/C (투자우선순위 순)</h3><div id="chart"></div></div>
+    </div>
+    <div class="tw"><table class="t" id="tbl"></table></div>
+    <div id="notes"></div>
+  </div>
+
+  <div class="card">
+    <details><summary>고급 설정 — 피해액 산정법(K-FRM·다차원법) · 할인율 · AHP 지표 · 격자 크기</summary>
+      <div class="row"><button id="pGuide">지침 기본값</button><button id="pV9">상두천 기존 엑셀값</button></div>
+      <div class="form" id="form"></div>
+      <p class="hint" style="margin-top:12px">지침 기본값: 자연재해위험개선지구 관리지침(2025) 할인율 최근 30년 4.5%·이후 3.5%, 분석기간 50년, 유지관리비 (총사업비−잔존가치)×2%. 피해액은 기본으로 K-FRM(하천기본계획수립지침 2025 붙임 8, K-FRM 기술보고서 2023·K-CDMS 원단위 2020을 가격기준년도로 물가 환산)으로 계산하며, 다차원법을 고르면 「치수사업 경제성분석 방법 연구(2004)」 원단위·피해율을 씁니다. K-FRM은 하도버퍼링 침수심 격자가 있어야 합니다.</p>
+    </details>
+  </div>
+  <p class="foot">계산은 모두 이 브라우저 안에서 이루어지며 올린 파일은 서버에 저장되지 않습니다.</p>
+</div>
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+var IS_GAS = typeof google !== 'undefined' && google.script && google.script.run;
+var SAMPLE = window.SAMPLE_DATA;
+var FILES = [], P = null, OUT = null, AHP = null, TPL = null, PREVIEW = null, KGRID = null, KINV = null, KTARGET = null;
+function log(s){ $('log').textContent += s + '\n'; }
+function prog(p, s){ $('prog').style.display = 'block'; $('prog').firstChild.style.width = p + '%'; if (s) log(s); }
+function tick(){ return new Promise(function(r){ setTimeout(r, 20); }); }
+
+// ---------------- 설정 ----------------
+var SET = [
+  ['method','피해액 산정법','method'],['duration','농작물 침수기간','dur'],['defStr','단독주택 구조(정보 없을 때)','str'],
+  ['r1','할인율 초기(%)','n'],['r1Years','초기 할인율 기간(년)','n'],['r2','할인율 이후(%)','n'],['period','분석기간(년)','n'],
+  ['buildYears','공사기간(년)','n'],['growth','편익·비용 증가율(%/년)','n'],['omRate','유지관리비율(%)','n'],['Ts','분석빈도(년)','list'],
+  ['cityTypeGoods','도시유형(가정용품)','city'],['cityTypeLife','도시유형(인명·이재민)','city'],['industrySido','산업자산 시도','sido'],['priceYear','가격기준년도','n'],
+  ['pfdCode','PFD 단위구역 코드','s'],['pfdArea','PFD 단위구역명','s'],['pfdGrade','PFD 등급','s'],['pfdValue','PFD 값','n'],
+  ['ecoGrade','생태자연도 등급','s'],['lagRank','지역낙후도 순위','n'],['lagTotal','지역낙후도 대상 시군 수','n'],
+  ['cell','침수심 격자 크기(m)','n'],['dxfCrs','DXF 좌표계','crs'],
+  ['includeSubsidiary','부대공 비용 포함','b'],['lifeAnnualize','인명피해 연평균화','b'],['contentsTriple','건물내용물 3중 합산','b'],['discountMode','할인 방식','dm']
+];
+var GUIDE = {Ts:[20,30,50,80,100,200], r1:4.5, r1Years:30, r2:3.5, period:50, buildYears:1, growth:0, omRate:2, benefitRatio:1,
+  priceYear:2024, lifeCpiYear:2024, gniYear:2024, cityTypeGoods:'농촌지역', cityTypeLife:'농촌지역', industrySido:'전북',
+  pfdCode:'', pfdArea:'', pfdGrade:'B', pfdValue:0.5215, ecoGrade:'3', lagRank:99, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto',
+  method:'kfrm', duration:0, defStr:'조적조', discountMode:'chain', includeSubsidiary:true, lifeAnnualize:true, contentsTriple:false, residual:{축제공:0.8, 호안공:0.1, 구조물공:0, 보상비:1}};
+var V9 = Object.assign({}, GUIDE, {r1:5.5, r2:4.5, growth:3, cityTypeLife:'전원도시', industrySido:'전남', pfdCode:'3302', pfdArea:'정읍시',
+  method:'mdfda', discountMode:'v9', includeSubsidiary:false, lifeAnnualize:false, contentsTriple:true});
+var CUR = Object.assign({}, GUIDE);
+function form(st){
+  CUR = Object.assign({}, st);
+  var tb = SAMPLE.tables, cities = Object.keys(tb.goods), sidos = Object.keys(tb.perWorker), crs = ['auto'].concat(Object.keys(CRS.DEFS));
+  $('form').innerHTML = SET.map(function(s){
+    var v = st[s[0]], inp;
+    if (s[2] === 'b') inp = '<input type="checkbox" data-k="' + s[0] + '"' + (v ? ' checked' : '') + '>';
+    else if (/city|sido|dm|crs|method|dur|str/.test(s[2])) {
+      var o = s[2] === 'city' ? cities : s[2] === 'sido' ? sidos : s[2] === 'crs' ? crs : s[2] === 'method' ? ['kfrm','mdfda'] : s[2] === 'dur' ? [0,1,2,3] : s[2] === 'str' ? ['조적조','철근콘크리트조','철골조','목조'] : ['chain','v9'];
+      var lab = function(x){ return s[2] === 'dur' ? KFRM.DURATIONS[x] : {chain:'구간별 복리', v9:'단일 지수', auto:'자동 판별', kfrm:'K-FRM (하천기본계획수립지침 2025)', mdfda:'다차원법 (2004)'}[x] || CRS.LABEL[x] || x; };
+      inp = '<select data-k="' + s[0] + '">' + o.map(function(x){ return '<option value="' + x + '"' + (String(x) === String(v) ? ' selected' : '') + '>' + lab(x) + '</option>'; }).join('') + '</select>';
+    } else inp = '<input data-k="' + s[0] + '" value="' + (Array.isArray(v) ? v.join(',') : (v === undefined ? '' : v)) + '">';
+    return '<label>' + s[1] + inp + '</label>';
+  }).join('');
+}
+$('form').addEventListener('change', function(e){
+  var el = e.target, k = el.dataset.k; if (!k) return;
+  var s = SET.filter(function(x){ return x[0] === k; })[0];
+  CUR[k] = s[2] === 'b' ? el.checked : s[2] === 'n' || s[2] === 'dur' ? +el.value : s[2] === 'list' ? el.value.split(/[,\s]+/).map(Number).filter(Boolean) : el.value;
+  if (k === 'defStr' && KGRID) KINV = readInventory(KTARGET || 'EPSG:5186');
+  if (OUT && !/cell|dxfCrs/.test(k)) econ();
+});
+$('pGuide').onclick = function(){ form(GUIDE); if (OUT) econ(); };
+$('pV9').onclick = function(){ form(V9); if (OUT) econ(); };
+form(GUIDE);
+if (!(SAMPLE.districts || []).length) { $('bSample').style.display = 'none'; $('pV9').style.display = 'none'; }   // 공개용(과업 자료 없음)
+
+// ---------------- 파일 분류 ----------------
+var ROLES = {input:'입력 엑셀', stats:'통계연보(읍면동)', section:'측선·홍수위', terrain:'수치지도', zone:'지구×토지피복 구획', district:'지구계', cover:'토지피복', flood:'침수심 SHP', building:'K-FRM 건물', vehicle:'K-FRM 차량(집계구)', population:'K-FRM 인구(집계구)', farmland:'K-FRM 농경지', template:'보고서 양식', skip:'사용 안 함'};
+var NEED = [
+  ['input','입력 엑셀','지구(1.1 하천개수계획 현황 그대로) · 읍면동 통계 · 공사비 · (선택) 홍수위'],
+  ['section','측선 + 개수전 홍수위','측선 SHP(빈도별 홍수위 필드) 또는 측선 DXF(측점 문자) + 엑셀 "홍수위" 시트'],
+  ['terrain','수치지도','등고선(F00171xx)·표고점(F00272xx) DXF'],
+  ['zone','지구계 · 토지피복','지구계 SHP 또는 지구 DXF(닫힌 선 + 지구명 문자) + 환경부 토지피복도 SHP — 토지피복도는 한 번 넣으면 이 브라우저가 기억, K-FRM은 없어도 됨'],
+  ['stats','통계연보 (선택)','KOSIS 등에서 받은 읍면동별 표(세대·인구, 토지지목, 주택유형, 산업별 종사자, 연령별 인구, 농작물) 엑셀·CSV — 읍면동 시트의 빈칸을 자동으로 채움'],
+  ['kfrm','K-FRM 인벤토리 (권장)','건물 SHP(K-CDMS 또는 도로명주소 전자지도 건물) · 집계구 인구·차량 · 농경지 — 없으면 인구는 읍면동 통계, 농작물은 토지피복으로 대신'],
+  ['template','보고서 양식 (선택)','다른 양식을 쓰려면 hwpx를 함께 — 없으면 기본 양식']
+];
+function freqOf(s){ var m = /(\d{2,3})\s*(년|yr|y\b|year)/i.exec(s) || /(?:^|[^\d])(20|30|50|80|100|200|500)(?:[^\d]|$)/.exec(s); return m ? +m[1] : ''; }
+function stationField(fc){ return IO.fields(fc).find(function(k){ return IO.values(fc, k, 30).filter(function(v){ return GISR.stationKey(v); }).length >= 3; }); }
+function wseFields(fc){ var o = {}; IO.fields(fc).forEach(function(k){ var t = freqOf(k) || (/^\D*(\d{2,3})\D*$/.test(k) ? +/(\d{2,3})/.exec(k)[1] : ''); var v = IO.values(fc, k, 5).find(function(x){ return x !== null && x !== ''; }); if (t && typeof v === 'number') o[t] = k; }); return o; }
+function districtField(fc){ return IO.fields(fc).find(function(k){ return IO.values(fc, k, 300).filter(function(v){ return /지구/.test(String(v || '')); }).length >= 2; }); }
+function coverField(fc){ return IO.fields(fc).find(function(k){ return /^L2_NAME$/i.test(k); }) || IO.fields(fc).find(function(k){ return /^L2_CODE$/i.test(k); }); }
+function kfrmRole(fc){
+  var ks = IO.fields(fc).map(function(k){ return k.toUpperCase(); }), h = function(re){ return ks.some(function(k){ return re.test(k); }); };
+  if (h(/^BDTYP(_CD)?$/) || h(/^S_BDTYP$/)) return 'building';
+  if (h(/^(T[123]_N|PAS\d_N|PAS\d)$/)) return 'vehicle';
+  if (h(/^(VUL_POP|GEN_POP)$/) || (h(/^TOT_POP$/) && h(/^TOT_REG_CD$/))) return 'population';
+  if (h(/^(PAD_AREA|PAD_A)$/) || h(/^UPL_[A-Z]{3}/)) return 'farmland';
+  return null;
+}
+function gtype(fc){ var f = (fc.features || []).find(function(x){ return x.geometry; }); return f ? f.geometry.type : ''; }
+
+$('drop').onclick = function(){ $('pick').click(); };
+$('pick').onchange = function(){ addFiles(this.files); this.value = ''; };
+['dragover','dragenter'].forEach(function(ev){ $('drop').addEventListener(ev, function(e){ e.preventDefault(); $('drop').classList.add('over'); }); });
+['dragleave','drop'].forEach(function(ev){ $('drop').addEventListener(ev, function(e){ e.preventDefault(); $('drop').classList.remove('over'); }); });
+$('drop').addEventListener('drop', function(e){ addFiles(e.dataTransfer.files); });
+
+function addFiles(list){
+  [].forEach.call(list, function(f){
+    var ext = f.name.split('.').pop().toLowerCase();
+    if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') { var ix = {file:f, name:f.name, role:'pending'}; FILES.push(ix); f.arrayBuffer().then(function(b){
+        var wb = ext === 'csv' ? XLSX.read(IO.decodeText(b), {type:'string'}) : XLSX.read(b);
+        var isInput = wb.SheetNames.some(function(n){ return /지구|공사비|단가|개수계획/.test(n); });
+        ix.wb = wb; ix.role = isInput ? 'input' : 'stats'; ix.info = wb.SheetNames.length + '개 시트';
+        show(); }).catch(function(e){ ix.role = 'skip'; ix.info = '읽기 실패: ' + e.message; show(); }); }
+    else if (ext === 'hwpx') FILES.push({file:f, name:f.name, role:'template'});
+    else if (ext === 'dxf') { var it = {file:f, name:f.name, role:'pending'}; FILES.push(it); f.arrayBuffer().then(function(b){
+        it.text = IO.decodeText(b); it.dxf = GISR.parseDxf(it.text);
+        it.role = it.dxf.contours.length > 20 || /고도|수치|지형|등고/.test(f.name) ? 'terrain' : 'section';
+        it.info = it.role === 'terrain' ? '등고선 ' + it.dxf.contours.length + ' · 표고점 ' + it.dxf.points.length : '선 ' + it.dxf.lines.length + ' · 문자 ' + it.dxf.texts.length;
+        if (it.role !== 'terrain' && !/측선|단면|횡단|종단/.test(f.name)) {
+          var dfc = dxfDistricts(it.dxf);
+          if (dfc.features.length && (/지구/.test(f.name) || dfc.features.length >= 2 || !it.dxf.texts.some(function(t){ return GISR.stationKey(t.text); }))) {
+            it.role = 'district'; it.fc = dfc; it.df = '지구명'; it.dxfRaw = true;
+            it.info = '지구 ' + dfc.features.length + '개(DXF 닫힌 선 + 지구명 문자) · 좌표계 자동 판별';
+          }
+        }
+        show(); }); }
+    else if (ext === 'zip') { var ph = {file:f, name:f.name, role:'pending'}, zbuf = null; FILES.push(ph); f.arrayBuffer().then(function(b){ zbuf = b; return IO.readShpZip(b); }).then(function(layers){
+        FILES.splice(FILES.indexOf(ph), 1);
+        layers.forEach(function(L){
+          var it = {name:f.name + (layers.length > 1 ? ' / ' + L.name : ''), fc:L.fc, crs:L.crs, role:'skip', zbuf:zbuf, zname:f.name}, t = gtype(L.fc), n = f.name + ' ' + L.name;
+          var kr = kfrmRole(L.fc);
+          if (kr) it.role = kr;
+          else if (/LineString/.test(t)) { it.role = 'section'; it.stField = stationField(L.fc); it.wse = wseFields(L.fc); }
+          else if (/Polygon/.test(t)) {
+            var cf = coverField(L.fc), df = districtField(L.fc);
+            if (cf && df) { it.role = 'zone'; it.cf = cf; it.df = df; }
+            else if (cf) { it.role = 'cover'; it.cf = cf; }
+            else if (df || /지구/.test(n)) { it.role = 'district'; it.df = df || IO.fields(L.fc)[0]; }
+            else { it.role = 'flood'; it.T = freqOf(n); it.depthField = IO.fields(L.fc).find(function(k){ return /심|depth|legend|class|grid/i.test(k); }) || IO.fields(L.fc)[0]; }
+          }
+          it.info = (L.fc.features || []).length + '개 ' + (t || '') + (it.crs ? ' · ' + it.crs : ' · 좌표계 없음');
+          FILES.push(it);
+        });
+        if (FILES.some(function(x){ return x.role === 'cover' && !x.cached && x.name.indexOf(f.name) === 0; }) && zbuf) {
+          for (var q = FILES.length - 1; q >= 0; q--) if (FILES[q].cached) FILES.splice(q, 1);
+          COVER.put(f.name, zbuf).then(function(){ var c = FILES.find(function(x){ return x.role === 'cover' && x.name.indexOf(f.name) === 0; }); if (c) { c.info += ' · 이 브라우저에 저장됨(다음부터 자동)'; show(); } }).catch(function(){});
+        }
+        show(); }).catch(function(e){ ph.role = 'skip'; ph.info = '읽기 실패: ' + e.message; show(); }); }
+  });
+  show();
+}
+// ---- 지구 DXF: 닫힌 폴리라인 + '…지구' 문자 → 지구계 다각형 ----
+function pip(x, y, r){ var c = false; for (var i = 0, j = r.length - 1; i < r.length; j = i++) { var a = r[i], b = r[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function dxfDistricts(dxf){
+  var polys = dxf.lines.filter(function(l){ var c = l.coords, n = c.length; if (n < 4) return false; var a = c[0], b = c[n - 1]; return l.closed || Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.5; })
+    .map(function(l){ var r = l.coords.slice(), a = r[0], b = r[r.length - 1]; if (a[0] !== b[0] || a[1] !== b[1]) r.push(a); return {ring:r, area:polyArea(r), layer:l.layer}; })
+    .filter(function(q){ return q.area > 1; });
+  var onLayer = polys.filter(function(q){ return /지구|경계|계획|구역|DIST|ZONE/i.test(q.layer); }); if (onLayer.length) polys = onLayer;
+  var labels = dxf.texts.map(function(t){ var m = /[^\s,()\[\]]*지구/.exec(t.text || ''); return m && m[0].length > 2 ? {x:t.x, y:t.y, name:m[0]} : null; }).filter(Boolean);
+  labels.forEach(function(t){
+    var q = polys.filter(function(p){ return !p.name && pip(t.x, t.y, p.ring); }).sort(function(a, b){ return a.area - b.area; })[0];
+    if (!q) { var bd = 300; polys.forEach(function(p){ if (p.name) return; p.ring.forEach(function(v){ var d = Math.hypot(v[0] - t.x, v[1] - t.y); if (d < bd) { bd = d; q = p; } }); }); }
+    if (q) q.name = t.name;
+  });
+  return {type:'FeatureCollection', features:polys.filter(function(q){ return q.name; }).map(function(q){ return {type:'Feature', properties:{'지구명':q.name}, geometry:{type:'Polygon', coordinates:[q.ring]}}; })};
+}
+// ---- 토지피복도: 한 번 넣으면 이 브라우저(IndexedDB)에 저장해 두고 다음부터 자동으로 불러옴 ----
+var COVER = {
+  db: function(){ return new Promise(function(ok, no){ try { var r = indexedDB.open('chisu-cover', 1); r.onupgradeneeded = function(){ r.result.createObjectStore('f'); }; r.onsuccess = function(){ ok(r.result); }; r.onerror = function(){ no(r.error); }; } catch (e) { no(e); } }); },
+  run: function(mode, fn){ return COVER.db().then(function(db){ return new Promise(function(ok, no){ var tx = db.transaction('f', mode), st = tx.objectStore('f'), req = fn(st); tx.oncomplete = function(){ ok(req && req.result); }; tx.onerror = function(){ no(tx.error); }; }); }); },
+  put: function(name, buf){ return COVER.run('readwrite', function(st){ return st.put({name:name, buf:buf, at:Date.now()}, 'cover'); }); },
+  get: function(){ return COVER.run('readonly', function(st){ return st.get('cover'); }); },
+  del: function(){ return COVER.run('readwrite', function(st){ return st.delete('cover'); }); }
+};
+function loadCachedCover(){
+  COVER.get().then(function(rec){
+    if (!rec || !rec.buf || FILES.some(function(f){ return f.role === 'cover'; })) return;
+    return IO.readShpZip(rec.buf).then(function(layers){
+      layers.forEach(function(L){ var cf = coverField(L.fc); if (!cf) return;
+        FILES.push({name:rec.name + (layers.length > 1 ? ' / ' + L.name : ''), fc:L.fc, crs:L.crs, role:'cover', cf:cf, cached:true,
+          info:(L.fc.features || []).length + '개 · 이 브라우저에 저장된 토지피복도 (' + new Date(rec.at).toLocaleDateString('ko-KR') + ')'}); });
+      show();
+    });
+  }).catch(function(){});
+}
+function has(r){ return FILES.some(function(f){ return f.role === r; }); }
+function show(){
+  var st = {input:has('input'), section:has('section'), terrain:has('terrain'), zone:has('zone') || has('district'), kfrm:has('building'), stats:has('stats'), template:has('template')};
+  $('need').innerHTML = NEED.map(function(n){
+    var ok = st[n[0]], opt = n[0] === 'template' || n[0] === 'kfrm' || n[0] === 'stats';
+    var fs = FILES.filter(function(f){ return f.role === n[0] || (n[0] === 'zone' && /district|cover/.test(f.role)) || (n[0] === 'kfrm' && /building|vehicle|population|farmland/.test(f.role)); }).map(function(f){ return f.name; });
+    return '<div class="' + (ok ? 'ok' : opt ? 'opt' : '') + '"><span class="st">' + (ok ? '✓' : opt ? '+' : '') + '</span><span><b>' + n[1] + '</b><small>' + n[2] + '</small>' + (fs.length ? '<span class="file">' + fs.join(', ') + '</span>' : '') + '</span></div>';
+  }).join('');
+  $('files').innerHTML = FILES.map(function(it, i){
+    var role = it.role === 'pending' ? '<span class="chip">읽는 중…</span>' : '<select data-i="' + i + '">' + Object.keys(ROLES).map(function(r){ return '<option value="' + r + '"' + (r === it.role ? ' selected' : '') + '>' + ROLES[r] + '</option>'; }).join('') + '</select>';
+    var T = it.role === 'flood' ? ' 빈도 <input data-i="' + i + '" data-a="T" value="' + (it.T || '') + '" style="width:56px">년' : '';
+    return '<tr><td>' + it.name + ' <span style="color:var(--mute)">' + (it.info || '') + '</span></td><td>' + role + T + '</td><td><button data-del="' + i + '">✕</button></td></tr>';
+  }).join('');
+  $('bRun').disabled = !(P || st.input);
+}
+$('files').addEventListener('change', function(e){ var t = e.target, it = FILES[+t.dataset.i]; if (!it) return; if (t.dataset.a === 'T') it.T = +t.value; else it.role = t.value;
+  if (it.role === 'cover') { it.cf = it.cf || coverField(it.fc); if (it.zbuf && !it.cached) { for (var q = FILES.length - 1; q >= 0; q--) if (FILES[q].cached) FILES.splice(q, 1); COVER.put(it.zname, it.zbuf).then(function(){ it.info += ' · 이 브라우저에 저장됨(다음부터 자동)'; show(); }).catch(function(){}); } }
+  show(); });
+loadCachedCover();
+$('files').addEventListener('click', function(e){ var d = e.target.dataset.del; if (d !== undefined) { var it = FILES[+d]; FILES.splice(+d, 1); if (it && it.cached) COVER.del().catch(function(){}); show(); } });
+show();
+
+// ---------------- 입력 엑셀 ----------------
+var LANDK = ['대지','답','전','과수원','공장용지','학교용지','주차장','주유소용지','창고용지','도로','철도용지'];
+var HOUSEK = ['단독주택','아파트','연립주택','다세대주택','영업용'];
+var CROPK = ['논벼','겉보리','쌀보리','마늘','양파','고추','참깨','콩'];
+var WORKK = 'ABCDEFGHIJKLMNO'.split('');
+var COSTK = ['축제공','호안공','구조물공','부대공','제경비','보상비'];
+function norm(h){ return String(h || '').replace(/\(.*?\)/g, '').replace(/\s/g, ''); }
+function headerMap(rows, keys){
+  for (var h = 0; h < Math.min(rows.length, 8); h++) {
+    var names = [];
+    for (var c = 0; c < 40; c++) { var s = ''; for (var r = 0; r <= h + 2 && r < rows.length; r++) s += ' ' + norm(rows[r][c]); names.push(s); }
+    var map = {}; keys.forEach(function(k){ var i = names.findIndex(function(n){ return k[1].test(n); }); if (i >= 0) map[k[0]] = i; });
+    if (map.name !== undefined && Object.keys(map).length >= 4) { var start = h + 1; while (start < rows.length && !/지구/.test(String(rows[start][map.name] || ''))) start++; return {map:map, start:start}; }
+  }
+  return null;
+}
+// ---- 공사비 단가: 연장(m) × 공종별 m당 단가(천원) × 빈도 보정계수 + 부대공·제경비 비율 + 보상비 ----
+var UNIT_DEF = {levee:{축제공:69, 호안공:339, 보상비:56}, reinf:{축제공:16, 호안공:340, 보상비:0}, revet:{축제공:0, 호안공:340, 보상비:0}, sub:20, gen:40,
+  factor:{20:0.77, 30:0.877, 50:1, 80:1.114, 100:1.168, 200:1.318}};
+function readUnit(wb){
+  var sn = wb.SheetNames.find(function(x){ return /^단가/.test(x.replace(/\s/g, '')); }); if (!sn) return null;
+  var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:''}), U = JSON.parse(JSON.stringify(UNIT_DEF)), inF = false;
+  U.factor = {};
+  rows.forEach(function(r){
+    var k = norm(r[0]);
+    if (/^빈도/.test(k)) { inF = true; return; }
+    if (inF && /^\d{2,3}$/.test(String(r[0]).trim()) && r[1] !== '') { U.factor[+r[0]] = +r[1]; return; }
+    ['축제공','호안공','보상비'].forEach(function(c){ if (k === c) { U.levee[c] = +r[1] || 0; U.reinf[c] = +r[2] || 0; U.revet[c] = +r[3] || 0; } });
+    if (/^부대공/.test(k)) U.sub = +r[1] || 0;
+    if (/^제경비/.test(k)) U.gen = +r[1] || 0;
+  });
+  if (!Object.keys(U.factor).length) U.factor = UNIT_DEF.factor;
+  return U;
+}
+function factorOf(U, T){
+  if (U.factor[T] !== undefined) return U.factor[T];
+  var ks = Object.keys(U.factor).map(Number).sort(function(a, b){ return a - b; }); if (!ks.length) return 1;
+  if (T <= ks[0]) return U.factor[ks[0]]; if (T >= ks[ks.length - 1]) return U.factor[ks[ks.length - 1]];
+  for (var i = 1; i < ks.length; i++) if (T < ks[i]) { var a = ks[i - 1], b = ks[i], w = (Math.log(T) - Math.log(a)) / (Math.log(b) - Math.log(a)); return U.factor[a] + w * (U.factor[b] - U.factor[a]); }
+  return 1;
+}
+function costByUnit(d, T, U){   // 백만원
+  var L = [[d.lenLevee || 0, U.levee], [d.lenReinf || 0, U.reinf], [d.lenRevet || 0, U.revet]], k = factorOf(U, T);
+  var s = function(c){ return L.reduce(function(t, x){ return t + x[0] * (x[1][c] || 0); }, 0) / 1000; };
+  var c = {축제공:s('축제공') * k, 호안공:s('호안공') * k, 구조물공:d.struct || 0, 보상비:s('보상비')};
+  c.부대공 = (c.축제공 + c.호안공 + c.구조물공) * U.sub / 100;
+  c.제경비 = (c.축제공 + c.호안공 + c.구조물공 + c.부대공) * U.gen / 100;
+  return c;
+}
+function readInput(buf, name){
+  var wb = buf.SheetNames ? buf : XLSX.read(buf), p = {project:{name:name}, tables:JSON.parse(JSON.stringify(SAMPLE.tables)), districts:[], emds:{}, costs:{}, gis:[], wse:{}, settings:{}};
+  var sn = wb.SheetNames.find(function(n){ return /지구|현황/.test(n); }) || wb.SheetNames[0];
+  var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, defval:''});
+  var hm = headerMap(rows, [['river',/하천명/],['name',/지구명/],['bank',/안별/],['sido',/시도/],['sigungu',/시군구/],['emd',/읍면동/],['section',/구간/],['T',/계획빈도|빈도/],['levee',/축제/],['reinf',/보축/],['revet',/호안/],['struct',/구조물/]]);
+  if (!hm) throw new Error('지구 시트에서 하천명·지구명·안별·읍면동 머리글을 찾지 못했습니다.');
+  var lastRiver = '';
+  for (var r = hm.start; r < rows.length; r++) {
+    var row = rows[r], nm = String(row[hm.map.name] || '').trim(); if (!nm || !/지구/.test(nm)) continue;
+    var rv = String(row[hm.map.river] || '').trim() || lastRiver; lastRiver = rv;
+    var g = function(k){ return hm.map[k] !== undefined ? row[hm.map[k]] : ''; };
+    p.districts.push({river:rv, name:nm, bank:String(g('bank')).trim(), sido:String(g('sido')).trim(), sigungu:String(g('sigungu')).trim(), emd:String(g('emd')).trim(),
+      section:String(g('section')).trim(), designT:+g('T') || 50, lenLevee:+g('levee') || 0, lenReinf:+g('reinf') || 0, lenRevet:+g('revet') || 0, struct:+g('struct') || 0});
+  }
+  var obj = function(re){ var s = wb.SheetNames.find(function(x){ return re.test(x.replace(/\s/g,'')); }); return s ? XLSX.utils.sheet_to_json(wb.Sheets[s], {defval:''}) : []; };
+  var keyed = function(r){ var g = {}; Object.keys(r).forEach(function(k){ g[norm(k).replace(/^종사자/, '')] = r[k]; }); return g; };
+  obj(/^읍면동/).forEach(function(r){ var g = keyed(r), n = String(g['읍면동'] || '').trim(); if (!n) return;
+    var e = {name:n, areaHa:+g['행정구역면적'] || 0, households:+g['세대수'] || 0, population:+g['인구'] || 0, vulnerable:+g['취약인구'] || 0, land:{}, houses:{}, crops:{}, workers:{}};
+    LANDK.forEach(function(k){ e.land[k] = +g[k] || 0; }); HOUSEK.forEach(function(k){ e.houses[k] = +g[k] || 0; });
+    CROPK.forEach(function(k){ e.crops[k] = +g[k] || 0; }); WORKK.forEach(function(k){ e.workers[k] = +g[k] || 0; });
+    p.emds[n] = e; });
+  obj(/^공사비/).forEach(function(r){ var g = keyed(r), n = String(g['지구명'] || '').trim(), T = +g['빈도']; if (!n || !T) return;
+    var c = {}, any = false; COSTK.forEach(function(k){ c[k] = +g[k] || 0; if (c[k]) any = true; }); if (any) (p.costs[n] = p.costs[n] || {})[T] = c; });
+  // 단가 시트가 있으면 공사비가 비어 있는 지구·빈도를 연장 × 단가로 채움(엑셀 수식이 계산되지 않은 파일도 같은 값)
+  var U = readUnit(wb);
+  if (U) {
+    var Ts = (CUR.Ts || GUIDE.Ts), made = 0;
+    p.districts.forEach(function(d){ Ts.forEach(function(T){ if ((p.costs[d.name] || {})[T]) return; (p.costs[d.name] = p.costs[d.name] || {})[T] = costByUnit(d, T, U); made++; }); });
+    if (made) p.costNote = '단가 시트로 공사비 ' + made + '건(지구×빈도)을 자동 산정';
+  }
+  obj(/^GIS면적/).forEach(function(r){ var g = keyed(r); if (!g['지구명'] || !+g['빈도']) return; var cov = String(g['토지피복']).trim();
+    p.gis.push({T:+g['빈도'], district:String(g['지구명']).trim(), depth:String(g['침수심']), cover:cov, cls:GIS.CLS[cov] || (['주거','논','밭','산업'].indexOf(cov) >= 0 ? cov : '기타'), area:+g['면적'] || 0}); });
+  // 홍수위: 측점 | 20 | 30 | ... (열 이름에 빈도 숫자)
+  var hs = wb.SheetNames.find(function(x){ return /홍수위/.test(x); });
+  if (hs) {
+    var hr = XLSX.utils.sheet_to_json(wb.Sheets[hs], {header:1, defval:''}), head = hr[0] || [], cols = {};
+    head.forEach(function(h, c){ var t = freqOf(String(h)) || (/^\d{2,3}$/.test(String(h).trim()) ? +h : 0); if (t) cols[c] = t; });
+    hr.slice(1).forEach(function(row){ var k = GISR.stationKey(row[0]); if (!k) return; p.wse[k] = {}; Object.keys(cols).forEach(function(c){ if (row[c] !== '') p.wse[k][cols[c]] = +row[c]; }); });
+  }
+  // 통계연보(읍면동별 표) → 읍면동 시트 빈칸 채우기
+  var SW = FILES.filter(function(f){ return f.role === 'stats' && f.wb; }).map(function(f){ return f.wb; });
+  if (SW.length) {
+    var names = p.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
+    var R = STATS.parse(SW, names, (p.districts[0] || {}).sigungu), notes = [];
+    names.forEach(function(n){
+      var st = R[n]; if (!st) { notes.push(n + ': 통계연보에서 못 찾음'); return; }
+      var e = p.emds[n] = p.emds[n] || {name:n, areaHa:0, households:0, population:0, vulnerable:0, land:{}, houses:{}, crops:{}, workers:{}};
+      var done = STATS.fill(e, st); notes.push(n + ': ' + (done.length ? done.join(' · ') : '채울 빈칸 없음'));
+    });
+    p.statsNote = '통계연보 → ' + notes.join(' / ');
+  }
+  var sido = (p.districts[0] || {}).sido; if (sido && p.tables.perWorker[sido]) CUR.industrySido = sido;
+  return p;
+}
+
+// ---------------- GIS 단계 ----------------
+function matchDistrict(v){
+  v = String(v || '').trim(); if (!v) return null;
+  var names = P.districts.map(function(d){ return d.name; }).sort(function(a, b){ return b.length - a.length; });
+  return names.find(function(n){ return v === n; }) || names.find(function(n){ return v.endsWith(n) && !(v.endsWith('보축' + n) && n.indexOf('보축') !== 0); }) || null;
+}
+function coverName(v){ var n = +v; return isFinite(n) && GIS.L2[n] ? GIS.L2[n] : String(v || '').trim(); }
+function mapCoords(coords, f){ return coords.map(function(p){ return f(p); }); }
+function buildGis(){
+  var Fz = FILES.find(function(f){ return f.role === 'zone'; }), Fd = FILES.find(function(f){ return f.role === 'district'; }), Fc = FILES.find(function(f){ return f.role === 'cover'; });
+  var Fs = FILES.find(function(f){ return f.role === 'section'; }), Ft = FILES.find(function(f){ return f.role === 'terrain'; });
+  var Ffl = FILES.filter(function(f){ return f.role === 'flood' && f.T; });
+  var target = (Fz || Fd || {}).crs || (Fs && Fs.crs) || 'EPSG:5186'; KTARGET = target; KGRID = null; KINV = null;
+  // 1) 구획(지구 × 토지피복)
+  var zones = [];
+  if (Fd && !Fd.fc && Fd.dxf) { Fd.fc = dxfDistricts(Fd.dxf); Fd.df = '지구명'; Fd.dxfRaw = true; }
+  var dcrs = Fd ? Fd.crs : null;
+  if (Fd && Fd.dxfRaw) {
+    var dpts = [].concat.apply([], Fd.fc.features.map(function(x){ return x.geometry.coordinates[0]; })), ref = null, refIt = (Fs && Fs.fc) ? Fs : Fc;
+    if (refIt && refIt.fc) { var trr = CRS.transformer(refIt.crs || target, target), rp = [];
+      (refIt.fc.features || []).slice(0, 3000).forEach(function(x){ var g = x.geometry; if (!g) return; var c = g.type === 'Polygon' ? g.coordinates[0] : g.type === 'MultiPolygon' ? g.coordinates[0][0] : g.type === 'LineString' ? g.coordinates : g.type === 'MultiLineString' ? g.coordinates[0] : null; if (c) c.forEach(function(q){ rp.push(trr(q)); }); });
+      if (rp.length) ref = CRS.bboxOf(rp); }
+    dcrs = CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : (ref ? CRS.guess(dpts, ref, target) : null) || target;
+    log('지구 DXF: 지구 ' + Fd.fc.features.length + '개, 좌표계 ' + (CRS.LABEL[dcrs] || dcrs));
+  }
+  if (Fz || Fd) {
+    if (Fz) {
+      var tz = CRS.transformer(Fz.crs, target);
+      IO.polyRings(Fz.fc).forEach(function(z){ var d = matchDistrict(z.props[Fz.df]); if (!d) return; zones.push({rings:z.rings.map(function(r){ return mapCoords(r, tz); }), district:d, cover:coverName(z.props[Fz.cf])}); });
+    } else {
+      var td = CRS.transformer(dcrs, target), tc = Fc ? CRS.transformer(Fc.crs, target) : null;
+      var D = IO.polyRings(Fd.fc).map(function(z){ var f = {type:'Feature', properties:{d:matchDistrict(z.props[Fd.df])}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, td); })}}; f.bb = turf.bbox(f); return f; }).filter(function(f){ return f.properties.d; });
+      var DB = D.reduce(function(b, d){ return [Math.min(b[0], d.bb[0]), Math.min(b[1], d.bb[1]), Math.max(b[2], d.bb[2]), Math.max(b[3], d.bb[3])]; }, [Infinity, Infinity, -Infinity, -Infinity]);
+      if (Fc) IO.polyRings(Fc.fc).forEach(function(z){
+        var f = {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, tc); })}}, bb = turf.bbox(f), cv = coverName(z.props[Fc.cf]);
+        if (bb[2] < DB[0] || DB[2] < bb[0] || bb[3] < DB[1] || DB[3] < bb[1]) return;
+        D.forEach(function(d){
+          if (bb[2] < d.bb[0] || d.bb[2] < bb[0] || bb[3] < d.bb[1] || d.bb[3] < bb[1]) return;
+          var I = null; try { I = turf.intersect(f, d); } catch (e) {}
+          if (!I) return;
+          (I.geometry.type === 'Polygon' ? [I.geometry.coordinates] : I.geometry.coordinates).forEach(function(rings){ zones.push({rings:rings, district:d.properties.d, cover:cv}); });
+        });
+      });
+      // 토지피복도가 없거나 지구를 덮지 않으면 그 지구는 지구계만(피복 없음)
+      var got = {}; zones.forEach(function(z){ got[z.district] = 1; });
+      var bare = D.filter(function(d){ return !got[d.properties.d]; });
+      bare.forEach(function(d){ zones.push({rings:d.geometry.coordinates, district:d.properties.d, cover:''}); });
+      if (bare.length) log((Fc ? '⚠ 토지피복도가 덮지 않는 지구 ' : '토지피복도 없음 — 지구계만 사용: ') + bare.map(function(d){ return d.properties.d; }).join(', ') + (CUR.method === 'kfrm' ? ' (K-FRM은 건물·인구 인벤토리로 계산)' : ' (다차원법은 토지피복이 있어야 주거·농업·산업 피해가 나옵니다)'));
+    }
+  }
+  // 2) 하도버퍼링
+  if (Fs && Ft && zones.length) {
+    var secs = [];
+    if (Fs.fc) {
+      var ts = CRS.transformer(Fs.crs || target, target);
+      IO.lineCoords(Fs.fc).forEach(function(l){
+        var w = {}, key = Fs.stField ? GISR.stationKey(l.props[Fs.stField]) : null;
+        Object.keys(Fs.wse || {}).forEach(function(T){ var v = l.props[Fs.wse[T]]; if (typeof v === 'number') w[T] = v; });
+        if (!Object.keys(w).length && key && P.wse[key]) w = P.wse[key];
+        if (Object.keys(w).length) secs.push({coords:mapCoords(l.coords, ts), wse:w, station:key});
+      });
+    } else {
+      var lines = Fs.dxf.lines.filter(function(l){ return /측선|단면|SEC/i.test(l.layer); });
+      if (!lines.length) lines = Fs.dxf.lines;
+      GISR.joinStations(lines, Fs.dxf.texts).forEach(function(l){ if (l.station && P.wse[l.station]) secs.push({coords:l.coords, wse:P.wse[l.station], station:l.station, raw:true}); });
+    }
+    if (secs.length < 2) throw new Error('홍수위가 붙은 측선이 ' + secs.length + '개뿐입니다. 측선 SHP의 빈도별 홍수위 필드나 엑셀 "홍수위" 시트를 확인하세요.');
+    var zb = CRS.bboxOf([].concat.apply([], zones.map(function(z){ return z.rings[0]; })));
+    var dxfCrs = function(sample){ return CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : CRS.guess(sample, zb, target); };
+    if (secs[0].raw) { var c0 = dxfCrs([].concat.apply([], secs.map(function(s){ return s.coords; })).slice(0, 2000)); log('측선 DXF 좌표계: ' + (CRS.LABEL[c0] || c0)); var t1 = CRS.transformer(c0, target); secs.forEach(function(s){ s.coords = mapCoords(s.coords, t1); }); }
+    var cpts = [].concat.apply([], Ft.dxf.contours.slice(0, 400).map(function(c){ return c.coords; }));
+    var ct = dxfCrs(cpts.length ? cpts : Ft.dxf.points.map(function(q){ return [q.x, q.y]; })); log('수치지도 좌표계: ' + (CRS.LABEL[ct] || ct));
+    var tt = CRS.transformer(ct, target);
+    var contours = Ft.dxf.contours.map(function(c){ return {coords:mapCoords(c.coords, tt), z:c.z}; });
+    var points = Ft.dxf.points.map(function(q){ var p = tt([q.x, q.y]); return {x:p[0], y:p[1], z:q.z}; });
+    var cell = +CUR.cell || 1, areaSum = zones.reduce(function(s, z){ return s + Math.abs(turf.area ? polyArea(z.rings[0]) : 0); }, 0);
+    if (areaSum / (cell * cell) > 6e6) { cell = Math.ceil(Math.sqrt(areaSum / 6e6)); log('구획이 넓어 격자를 ' + cell + 'm로 키웠습니다.'); }
+    var Ts = CUR.Ts || GUIDE.Ts, previewT = Math.max.apply(null, P.districts.map(function(d){ return d.designT; }).concat([Ts[0]]));
+    if (Ts.indexOf(previewT) < 0) previewT = Ts[Ts.length - 1];
+    var R = GISR.run(secs, contours, points, zones, {cell:cell, Ts:Ts, previewT:previewT, keepDepth:true});
+    KGRID = {x0:R.grid.x0, y0:R.grid.y0, nx:R.grid.nx, ny:R.grid.ny, cell:R.grid.cell, zid:R.zid, zones:zones.map(function(z){ return {district:z.district, cover:z.cover}; }), depth:R.depth};
+    KINV = readInventory(target);
+    PREVIEW = {grid:R.grid, pv:R.preview, T:previewT};
+    log('하도버퍼링: 측선 ' + secs.length + '개, 구획 ' + zones.length + '개, 격자 ' + cell + 'm, 지형점 ' + R.demPoints.toLocaleString() + '개');
+    return R.rows.map(function(r){ return {T:r.T, district:r.district, depth:r.depth, cover:r.cover, cls:GIS.CLS[r.cover] || '기타', area:r.area}; });
+  }
+  // 3) 침수심 SHP 중첩
+  if (Ffl.length && Fd && Fc) {
+    var toW = function(it){ var t = CRS.transformer(it.crs || target, 'EPSG:4326'); return {type:'FeatureCollection', features:it.fc.features.map(function(f){ return {type:'Feature', properties:f.properties, geometry:reproj(f.geometry, t)}; })}; };
+    return GIS.overlay({districts:toW(Fd), districtField:Fd.df, cover:toW(Fc), coverField:Fc.cf, floods:Ffl.map(function(f){ return {T:+f.T, fc:toW(f), depthField:f.depthField}; })})
+      .map(function(r){ var d = matchDistrict(r.district); return d ? Object.assign(r, {district:d}) : null; }).filter(Boolean);
+  }
+  return null;
+}
+// K-FRM 인벤토리 → 분석 좌표계
+function featsOf(it, target){
+  var t = CRS.transformer(it.crs || target, target), out = [];
+  (it.fc.features || []).forEach(function(f){
+    var g = f.geometry; if (!g) return;
+    if (g.type === 'Point') out.push({props:f.properties, xy:t(g.coordinates)});
+    else if (g.type === 'MultiPoint') out.push({props:f.properties, xy:t(g.coordinates[0])});
+    else {
+      var polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+      polys.forEach(function(pg, k){ var rings = pg.map(function(r){ return r.map(t); }); out.push({props:f.properties, rings:rings, xy:KFRM.centroid(rings), part:k}); });
+    }
+  });
+  return out;
+}
+function readInventory(target){
+  var get = function(role){ return [].concat.apply([], FILES.filter(function(f){ return f.role === role && f.fc; }).map(function(f){ return featsOf(f, target); })); };
+  var bf = get('building').filter(function(f){ return !f.part; }), B = KFRM.buildings(bf, CUR.defStr);
+  var inv = {buildings:B.list, vehicles:KFRM.vehicles(get('vehicle').filter(function(f){ return f.rings; })), population:KFRM.population(get('population').filter(function(f){ return f.rings; })), farmland:KFRM.farmland(get('farmland').filter(function(f){ return f.rings; }))};
+  if (bf.length) log('K-FRM 인벤토리: 건물 ' + B.list.length.toLocaleString() + '동' + (B.skip ? ' (용도·면적 없음 ' + B.skip + '동 제외)' : '') + ' · 차량 집계구 ' + inv.vehicles.length + ' · 인구 집계구 ' + inv.population.length + ' · 농경지 ' + inv.farmland.length + '필지');
+  return inv;
+}
+function runKfrm(){
+  if (!KGRID) { P.kfrm = null; return; }
+  var emdOf = function(dn){ var d = P.districts.find(function(x){ return x.name === dn; }); return d ? P.emds[d.emd] : null; };
+  var tb = P.tables || SAMPLE.tables;
+  var R = KFRM.compute(KGRID, KINV || {}, {Ts:(CUR.Ts || GUIDE.Ts), priceYear:+CUR.priceYear, cpi:tb.cpi, gniDaily:tb.gniDaily, gniYear:+CUR.gniYear || +CUR.priceYear, duration:+CUR.duration || 0,
+    clsOf:function(c){ return GIS.CLS[c] || (['주거','논','밭','산업'].indexOf(c) >= 0 ? c : '기타'); }, emdOf:emdOf});
+  P.kfrm = R.byKey; P.kfrmNote = R.note; CUR.cpiF = R.cpiF;
+  var I = KINV || {}; P.kfrmInv = {b:R.note.bldgIn, v:(I.vehicles || []).length, p:(I.population || []).length, f:(I.farmland || []).length};
+}
+function polyArea(r){ var s = 0; for (var i = 0; i < r.length; i++){ var a = r[i], b = r[(i + 1) % r.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; }
+function reproj(g, t){ var m = function(c){ return typeof c[0] === 'number' ? t(c) : c.map(m); }; return {type:g.type, coordinates:m(g.coordinates)}; }
+
+// ---------------- 실행 ----------------
+$('bRun').onclick = function(){
+  $('bRun').disabled = true; $('log').textContent = ''; prog(3, '입력 확인');
+  var inp = FILES.find(function(f){ return f.role === 'input'; });
+  (inp ? inp.file.arrayBuffer().then(function(b){ P = readInput(b, inp.name); log('지구 ' + P.districts.length + '개 · 읍면동 ' + Object.keys(P.emds).length + '개 · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
+  .then(tick).then(function(){
+    prog(15, 'GIS 처리(하도버퍼링·구획 집계) 중…');
+    return tick().then(function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } });
+  }).then(function(){
+    if (!P.gis || !P.gis.length) throw new Error('침수면적이 없습니다. 측선·수치지도·지구계·토지피복을 함께 올리거나 엑셀 GIS면적 시트를 넣어 주세요.');
+    prog(75, '피해액·편익·경제성 계산'); return tick();
+  }).then(function(){
+    var miss = P.districts.filter(function(d){ return !P.emds[d.emd]; }).map(function(d){ return d.name + '(' + d.emd + ')'; });
+    if (CUR.method === 'kfrm') {
+      if (!KGRID) log('⚠ K-FRM은 하도버퍼링 침수심 격자가 필요합니다(측선·수치지도·지구계·토지피복). 이번 계산은 다차원법으로 합니다.');
+      else {
+        if (!KINV || !KINV.buildings.length) log('⚠ K-FRM 건물 인벤토리가 없어 건물피해가 0입니다. K-CDMS 건물 또는 도로명주소 전자지도 건물 SHP(zip)를 올리세요.');
+        if (!KINV || !KINV.vehicles.length) log('⚠ 차량 인벤토리 없음 — 차량피해 제외');
+        if (!KINV || !KINV.population.length) log('인구 인벤토리 없음 — 읍면동 인구(취약인구)를 주거지역(대지)에 배분');
+        if (!KINV || !KINV.farmland.length) log('농경지 인벤토리 없음 — 토지피복 논=논벼, 밭=밭작물 7종 평균');
+      }
+    }
+    if (miss.length && CUR.method !== 'kfrm') log('⚠ 읍면동 통계 없음: ' + miss.join(', '));
+    var noc = P.districts.filter(function(d){ return !P.costs[d.name]; }).map(function(d){ return d.name; });
+    if (noc.length) log('⚠ 공사비 없음(B/C 미산정): ' + noc.join(', '));
+    econ(); prog(100, '완료 — 아래에서 보고서와 엑셀을 내려받으세요.');
+    $('res').scrollIntoView({behavior:'smooth'});
+  }).catch(function(e){ log('오류: ' + e.message); console.error(e); }).then(function(){ $('bRun').disabled = false; });
+};
+$('bSample').onclick = function(){
+  P = JSON.parse(JSON.stringify(SAMPLE)); P.wse = {}; form(V9); FILES = []; PREVIEW = null; KGRID = null; KINV = null; show();
+  $('log').textContent = ''; log('상두천 예시(기존 엑셀의 입력값·GIS 면적)를 불러왔습니다. "분석하고 보고서 만들기"를 누르세요.');
+};
+
+function econ(){
+  var method = CUR.method === 'kfrm' && !KGRID ? 'mdfda' : CUR.method;
+  if (method === 'kfrm') runKfrm();
+  P.settings = Object.assign({}, CUR, {Ts:(CUR.Ts || GUIDE.Ts).slice(), method:method});
+  OUT = ECON.run(P); AHP = REPORT.ahp(OUT, P.settings);
+  render();
+}
+function f(v, d){ if (v === null || v === undefined || !isFinite(v)) return '-'; return v.toLocaleString('ko-KR', {minimumFractionDigits:d || 0, maximumFractionDigits:d || 0}); }
+function designOf(r){ var T = r.district.designT, Ts = OUT.Ts, t = Ts.indexOf(T) >= 0 ? T : (Ts.filter(function(x){ return x <= T; }).pop() || Ts[0]); return {T:t, d:r.damage[t], a:r.annual[t], e:r.econ[t]}; }
+function render(){
+  $('res').style.display = 'block';
+  var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
+  var ok = res.filter(function(r){ var e = designOf(r).e; return e && e.BC >= 1; }).length;
+  var sumC = res.reduce(function(s, r){ var e = designOf(r).e; return s + (e ? e.total : 0); }, 0);
+  var area = res.reduce(function(s, r){ return s + designOf(r).d.areaHa; }, 0), ben = res.reduce(function(s, r){ return s + designOf(r).a.total; }, 0);
+  $('resHint').textContent = ((P.districts[0] || {}).river || '') + ' · 지구 ' + res.length + '개 · 계획빈도 기준 · ' + (P.settings.method === 'kfrm' ? 'K-FRM' : '다차원법');
+  if (P.settings.method === 'kfrm') { var kn = res.reduce(function(s, r){ var d = designOf(r).d; s.b += d.nBldg || 0; s.v += d.nVeh || 0; s.c += d.casualties || 0; s.e += d.evacuees || 0; return s; }, {b:0, v:0, c:0, e:0});
+    $('resHint').textContent += ' · 계획빈도 침수건물 ' + f(kn.b) + '동 · 침수차량 ' + f(kn.v, 1) + '대 · 사상자 ' + f(kn.c, 3) + '명 · 이재민 ' + f(kn.e, 1) + '명'; }
+  $('kpi').innerHTML = '<div><small>B/C ≥ 1 지구</small><strong>' + ok + '</strong><em>/ ' + res.length + '</em></div><div><small>보호면적</small><strong>' + f(area, 2) + '</strong><em>ha</em></div>' +
+    '<div><small>연평균 편익</small><strong>' + f(ben, 1) + '</strong><em>백만원/년</em></div><div><small>총사업비</small><strong>' + f(sumC) + '</strong><em>백만원</em></div>';
+  var rows = res.slice().sort(function(a, b){ return (rk[a.district.name] || {}).rank - (rk[b.district.name] || {}).rank; });
+  $('tbl').innerHTML = '<thead><tr><th>순위</th><th class="l">지구</th><th>안별</th><th>계획빈도</th><th>침수면적(ha)</th><th>피해액</th><th>연평균편익</th><th>총사업비</th><th>B/C</th><th>NPV</th><th>IRR(%)</th><th>통합지표</th><th>판정</th></tr></thead><tbody>' +
+    rows.map(function(r){ var x = designOf(r), e = x.e, a = rk[r.district.name] || {};
+      return '<tr><td>' + (a.rank || '-') + '</td><td class="l">' + r.district.name + '</td><td>' + r.district.bank + '</td><td>' + x.T + '</td><td>' + f(x.d.areaHa, 2) + '</td><td>' + f(x.d.total, 1) + '</td><td>' + f(x.a.total, 2) + '</td><td>' + (e ? f(e.total) : '공사비 없음') +
+        '</td><td><b class="' + (e && e.BC >= 1 ? 'ok' : 'ng') + '">' + (e ? f(e.BC, 3) : '-') + '</b></td><td>' + (e ? f(e.NPV, 1) : '-') + '</td><td>' + (e && e.IRR ? f(e.IRR * 100, 2) : '-') + '</td><td>' + (a.score !== undefined ? a.score.toFixed(2) : '-') +
+        '</td><td>' + (e ? '<span class="tag ' + (e.BC >= 1 ? 'ok">타당' : 'ng">미흡') + '</span>' : '') + '</td></tr>'; }).join('') + '</tbody>';
+  chart(rows); drawMap();
+  $('notes').innerHTML = P.v9 ? '<div class="warn">상두천 예시는 기존 엑셀의 입력값·GIS 면적입니다. "상두천 기존 엑셀값" 설정에서 비용·인명피해는 엑셀과 같고 주거피해는 1% 이내이며, 농업피해 차이는 엑셀의 밭 면적 참조 오류 때문입니다.</div>' : '';
+}
+function chart(rows){
+  var data = rows.map(function(r){ var e = designOf(r).e; return {n:r.district.name, v:e ? e.BC : 0}; });
+  var W = 520, bh = 18, gap = 6, L = 92, H = data.length * (bh + gap) + 28, max = Math.max(1.5, Math.max.apply(null, data.map(function(d){ return d.v; })) * 1.08);
+  var sx = function(v){ return L + (W - L - 40) * Math.min(v, max) / max; };
+  var s = '<svg class="bc" viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="지구별 B/C">';
+  data.forEach(function(d, i){ var y = 6 + i * (bh + gap), ok = d.v >= 1;
+    s += '<text x="' + (L - 6) + '" y="' + (y + 13) + '" text-anchor="end">' + d.n + '</text><rect x="' + L + '" y="' + y + '" width="' + Math.max(1, sx(d.v) - L) + '" height="' + bh + '" rx="4" fill="' + (ok ? 'var(--teal)' : '#9fb0c8') + '"><title>' + d.n + ' B/C ' + d.v.toFixed(3) + '</title></rect><text x="' + (sx(d.v) + 5) + '" y="' + (y + 13) + '">' + d.v.toFixed(2) + '</text>'; });
+  s += '<line x1="' + sx(1) + '" x2="' + sx(1) + '" y1="0" y2="' + (H - 18) + '" stroke="var(--bad)" stroke-dasharray="4 3"/><text x="' + sx(1) + '" y="' + (H - 4) + '" text-anchor="middle" style="fill:var(--bad)">B/C = 1</text></svg>';
+  $('chart').innerHTML = s;
+}
+var DCOL = ['#e7ecf3', '#bfe3ff', '#7cc2ff', '#3b8cf0', '#1d4fc4', '#0b2a7a'];
+function drawMap(){
+  var cv = $('map'), ctx = cv.getContext('2d');
+  $('mapLeg').innerHTML = '<span><i style="background:' + DCOL[0] + '"></i>침수 없음</span>' + GISR.CLASSES.map(function(c, i){ return '<span><i style="background:' + DCOL[i + 1] + '"></i>' + c + 'm</span>'; }).join('');
+  if (!PREVIEW) { ctx.clearRect(0, 0, cv.width, cv.height); ctx.fillStyle = '#8a97aa'; ctx.font = '14px sans-serif'; ctx.fillText('하도버퍼링으로 계산했을 때 침수심도가 표시됩니다.', 20, 40); $('mapTitle').textContent = '침수심도'; return; }
+  var g = PREVIEW.grid, pv = PREVIEW.pv, s = Math.min(cv.width / g.nx, cv.height / g.ny);
+  cv.height = Math.round(g.ny * s) || 420;
+  var img = ctx.createImageData(cv.width, cv.height), rgb = DCOL.map(function(h){ return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)]; });
+  for (var y = 0; y < cv.height; y++) for (var x = 0; x < cv.width; x++) {
+    var i = Math.floor(x / s), j = g.ny - 1 - Math.floor(y / s); if (i >= g.nx || j < 0) continue;
+    var v = pv[j * g.nx + i]; if (!v) continue;
+    var c = rgb[v - 1], o = (y * cv.width + x) * 4; img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  $('mapTitle').textContent = '침수심도 (' + PREVIEW.T + '년 빈도, 격자 ' + g.cell + 'm)';
+}
+
+// ---------------- 입력양식 ----------------
+$('bTpl').onclick = function(){
+  var p = SAMPLE, wb = XLSX.utils.book_new(), add = function(n, a){ XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(a), n); };
+  add('지구', [['하천명','지구명','안별','시도','시군구','읍면동','구간(NO.)','계획빈도(년)','계(m)','축제(m)','보축(m)','호안(m)','구조물공(백만원)']].concat(p.districts.map(function(d){ return [d.river, d.name, d.bank, d.sido, d.sigungu, d.emd, d.section, d.designT, d.lenLevee + d.lenReinf + d.lenRevet, d.lenLevee || '', d.lenReinf || '', d.lenRevet || '', '']; })));
+  add('읍면동', [['읍면동','행정구역면적(ha)','세대수','인구','취약인구(5세 미만·65세 이상)'].concat(LANDK.map(function(k){ return k + '(㎡)'; }), HOUSEK.map(function(k){ return k + '(호)'; }), CROPK.map(function(k){ return k + '(ha)'; }), WORKK.map(function(k){ return '종사자' + k + '(명)'; }))].concat(
+    Object.keys(p.emds).map(function(n){ var e = p.emds[n]; return [n, e.areaHa, e.households, e.population, e.vulnerable || ''].concat(LANDK.map(function(k){ return e.land[k] || 0; }), HOUSEK.map(function(k){ return e.houses[k] || 0; }), CROPK.map(function(k){ return e.crops[k] || 0; }), WORKK.map(function(k){ return e.workers[k] || 0; })); })));
+  var D = UNIT_DEF, FT = Object.keys(D.factor).map(Number);
+  add('단가', [['항목','축제 구간','보축 구간','호안 구간','단위'],['축제공', D.levee.축제공, D.reinf.축제공, D.revet.축제공, '천원/m'],['호안공', D.levee.호안공, D.reinf.호안공, D.revet.호안공, '천원/m'],['보상비', D.levee.보상비, D.reinf.보상비, D.revet.보상비, '천원/m'],[],
+    ['부대공률', D.sub, '', '', '% (축제공+호안공+구조물공)'],['제경비율', D.gen, '', '', '% (직접공사비+부대공)'],[],['빈도','보정계수','','','축제공·호안공에 곱함(50년=1)']].concat(FT.map(function(T){ return [T, D.factor[T]]; })).concat([[],['※ 기본값은 상두천 하천기본계획 공사비 실적(50년, 지구 중앙값)입니다. 회사·과업 단가로 바꾸면 공사비 시트가 다시 계산됩니다.']]));
+  // 공사비: 지구 시트(행 2~)를 수식으로 참조 — 지구를 더 붙여넣어도 40행까지 자동
+  var ws = XLSX.utils.aoa_to_sheet([['지구명','빈도(년)'].concat(COSTK.map(function(k){ return k + '(백만원)'; }))]), r = 1, Ts = (CUR.Ts || GUIDE.Ts), fr = '$A$' + 10 + ':$B$' + (9 + FT.length);
+  for (var g = 2; g <= 41; g++) Ts.forEach(function(T){
+    r++; var z = "'지구'!", u = "'단가'!", L = function(c){ return 'N(' + z + 'J' + g + ')*' + u + '$B$' + c + '+N(' + z + 'K' + g + ')*' + u + '$C$' + c + '+N(' + z + 'L' + g + ')*' + u + '$D$' + c; };
+    var on = 'IF(' + z + 'B' + g + '="","",', k = 'IFERROR(VLOOKUP(B' + r + ',' + u + fr + ',2,FALSE),1)';
+    ws['A' + r] = {t:'s', f:on + z + 'B' + g + ')'}; ws['B' + r] = {t:'n', v:T};
+    ws['C' + r] = {t:'n', f:on + '(' + L(2) + ')*' + k + '/1000)'};
+    ws['D' + r] = {t:'n', f:on + '(' + L(3) + ')*' + k + '/1000)'};
+    ws['E' + r] = {t:'n', f:on + 'N(' + z + 'M' + g + '))'};
+    ws['F' + r] = {t:'n', f:on + '(C' + r + '+D' + r + '+E' + r + ')*' + u + '$B$6/100)'};
+    ws['G' + r] = {t:'n', f:on + '(C' + r + '+D' + r + '+E' + r + '+F' + r + ')*' + u + '$B$7/100)'};
+    ws['H' + r] = {t:'n', f:on + '(' + L(4) + ')/1000)'};
+  });
+  ws['!ref'] = 'A1:H' + r; XLSX.utils.book_append_sheet(wb, ws, '공사비');
+  add('홍수위', [['측점','20년','30년','50년','80년','100년','200년'],['0+000','','','','','',''],['0+050','','','','','','']]);
+  add('작성요령', [['시트','작성 방법'],['지구','"1.1 하천개수계획 현황" 표를 그대로 붙여넣기(머리글 2줄 가능)'],['읍면동','통계연보(세대·인구·지목면적·종사자 A~O), 주택총조사(주택유형별 호수), 농산물 생산면적. KOSIS에서 받은 읍면동별 표(엑셀·CSV)를 화면에 같이 끌어놓으면 빈칸을 자동으로 채움 — 이 시트는 비워 둬도 됨'],['공사비','자동 계산(수식): 지구 시트 연장 × 단가 시트 m당 단가 × 빈도 보정계수, 부대공·제경비는 비율, 구조물공은 지구 시트 값. 실제 개략사업비가 있으면 값으로 덮어써도 됨'],['단가','공종별 m당 단가(천원)·부대공률·제경비율·빈도 보정계수. 기본값은 상두천 실적이므로 과업 단가로 바꿔 쓰기'],['홍수위','개수 전 측점별 홍수위(EL.m). 측선 SHP에 빈도별 홍수위 필드가 있으면 비워도 됨'],['GIS면적','(선택) 이미 계산한 지구·빈도·침수심·토지피복 면적이 있으면 넣기 — 하도버퍼링 생략(다차원법만 가능)'],['K-FRM','건물·집계구 인구·차량·농경지 SHP(zip)를 화면에 함께 끌어놓기. 인구 인벤토리가 없으면 읍면동 인구·취약인구를 주거지역(대지)에 나눠 씀'],['종사자 A~O','A 농림 B 어업 C 광업 D 제조 E 전기가스수도 F 건설 G 도소매 H 숙박음식 I 운수창고통신 J 금융보험 K 부동산사업서비스 L 공공행정 M 교육 N 보건사회복지 O 기타서비스']]);
+  saveWb(wb, '치수경제성_입력양식.xlsx');
+};
+
+// ---------------- 내려받기 ----------------
+function anchorSave(blob, name){ var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
+var DL = null; if (window.claude && window.claude.use) DL = window.claude.use('downloads').catch(function(){ return null; });
+function save(blob, name){
+  if (!DL) { anchorSave(blob, name); return Promise.resolve(); }
+  return DL.then(function(d){
+    if (!d) { anchorSave(blob, name); dlBlocked(); return; }
+    var p = Promise.resolve({blob: blob, name: name});
+    if (/\.hwpx$/i.test(name)) p = new JSZip().file(name, blob).generateAsync({type:'blob'}).then(function(z){ return {blob: z, name: name.replace(/\.hwpx$/i, '.zip')}; });
+    return p.then(function(x){ return d.save({filename: x.name, data: x.blob}); }).then(function(){ log('저장: ' + name + (/\.hwpx$/i.test(name) ? ' (zip 안에 들어 있음)' : '')); },
+      function(e){
+        var c = e && e.code;
+        if (c === 'declined') log('저장을 취소했습니다.');
+        else if (c === 'rate_limited') log('저장 창이 이미 열려 있습니다. 잠시 뒤 다시 누르세요.');
+        else { anchorSave(blob, name); dlBlocked(); }
+      });
+  });
+}
+// 공유 링크로 연 화면 등에서 저장 기능이 막힌 경우 안내
+function dlBlocked(){
+  log('⚠ 이 화면에서는 파일 저장이 막혀 있을 수 있습니다.');
+  var n = $('dlnote'); if (!n) { n = document.createElement('div'); n.id = 'dlnote'; n.className = 'warn'; var c = document.querySelector('.wrap'); c.insertBefore(n, c.firstChild); }
+  n.innerHTML = '<b>이 화면에서는 파일을 내려받을 수 없습니다.</b> claude.ai 정책상 이 페이지의 내려받기는 만든 사람과 같은 조직 구성원만 쓸 수 있습니다(로그인해도 조직 밖이면 안 됨). 계산과 결과 확인은 그대로 되며, 보고서·엑셀이 필요하면 담당자에게 <b>오프라인 파일(치수경제성.html)</b>을 받아 크롬·엣지로 여세요. 같은 화면이고 내려받기까지 내 컴퓨터에서 됩니다.';
+  n.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function saveWb(wb, name){ return save(new Blob([XLSX.write(wb, {type:'array', bookType:'xlsx'})]), name); }
+function template(){
+  var tf = FILES.find(function(x){ return x.role === 'template'; });
+  if (tf) return tf.file.arrayBuffer().then(function(b){ return JSZip.loadAsync(b).then(function(z){ return z.generateAsync({type:'base64'}); }); });
+  if (TPL) return Promise.resolve(TPL);
+  if (window.TPL_B64) return Promise.resolve(TPL = window.TPL_B64);
+  if (IS_GAS) return new Promise(function(ok, no){ google.script.run.withSuccessHandler(function(b){ TPL = b; ok(b); }).withFailureHandler(function(e){ no(new Error('보고서 양식을 불러오지 못했습니다: ' + e.message)); }).getTemplate(); });
+  return Promise.reject(new Error('보고서 양식(.hwpx)이 없습니다. 양식 파일을 함께 올려 주세요.'));
+}
+$('bHwp').onclick = function(){
+  var b = this; b.disabled = true; log('보고서 만드는 중…');
+  template().then(function(t){ return REPORT.make(t, P, OUT, P.settings); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
+    .catch(function(e){ log('오류: ' + e.message); }).then(function(){ b.disabled = false; });
+};
+$('bGis').onclick = function(){
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['빈도(년)','지구명','침수심','토지피복','면적(㎡)']].concat(P.gis.map(function(g){ return [g.T, g.district, g.depth, g.cover || g.cls, g.area]; }))), 'GIS면적');
+  saveWb(wb, '침수면적_' + ((P.districts[0] || {}).river || '') + '.xlsx');
+};
+$('bXls').onclick = function(){
+  var wb = XLSX.utils.book_new(), Ts = OUT.Ts, add = function(n, a){ XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(a), n); };
+  var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
+  add('요약', [['지구명','안별','읍면동','계획빈도','침수면적(ha)','피해액','연평균편익','총사업비','편익현가B','비용현가C','B/C','NPV','IRR(%)','통합지표','투자우선순위']].concat(res.map(function(r){ var x = designOf(r), e = x.e || {}, a = rk[r.district.name] || {};
+    return [r.district.name, r.district.bank, r.district.emd, x.T, x.d.areaHa, x.d.total, x.a.total, e.total, e.benefitPV, e.costPV, e.BC, e.NPV, (e.IRR || 0) * 100, a.score, a.rank]; })));
+  var L = P.settings.method === 'kfrm' ? [['보호면적계(ha)','areaHa'],['주거면적','areaRes'],['농업면적','areaAgr'],['산업면적','areaInd'],['건물구조물','building'],['건물내용물','contents'],['주거건물','residential'],['비주거건물','nonresidential'],['차량','vehicle'],['농작물','crop'],['농경지','farmland'],['사유자산 계','general'],['인명','lifeOnly'],['이재민','evac'],['공공시설','public'],['총피해액','total'],['침수건물(동)','nBldg'],['침수 주거건물(동)','nBldgRes'],['침수차량(대)','nVeh'],['노출인구 PAR(명)','par'],['사상자(명)','casualties'],['이재민(명)','evacuees']]
+    : [['보호면적계(ha)','areaHa'],['주거면적','areaRes'],['농업면적','areaAgr'],['산업면적','areaInd'],['건물','building'],['건물내용물','contents'],['농경지','farmland'],['농작물','crop'],['유형자산','tangible'],['재고자산','stock'],['일반자산','general'],['인명·이재민','life'],['공공시설','public'],['총피해액','total']];
+  var dm = [['지구명','빈도'].concat(L.map(function(l){ return l[0]; }))]; res.forEach(function(r){ Ts.forEach(function(T){ dm.push([r.district.name, T].concat(L.map(function(l){ return r.damage[T][l[1]]; }))); }); }); add('빈도별 피해액', dm);
+  var an = [['지구명','빈도','연평균편익(누계)']]; res.forEach(function(r){ Ts.forEach(function(T){ an.push([r.district.name, T, r.annual[T].total]); }); }); add('연평균편익', an);
+  var ec = [['지구명','빈도','총사업비','잔존가치','유지관리비/년','편익현가','비용현가','B/C','NPV','IRR(%)']]; res.forEach(function(r){ Ts.forEach(function(T){ var e = r.econ[T]; if (e) ec.push([r.district.name, T, e.total, e.residual, e.om, e.benefitPV, e.costPV, e.BC, e.NPV, e.IRR * 100]); }); }); add('빈도별 경제성', ec);
+  if (P.settings.method === 'kfrm') add('K-FRM 기준', [['항목','값'],['산정법','K-FRM 정량적 홍수위험평가(기술보고서 2023, K-CDMS 원단위 2020)'],['가격기준년도', P.settings.priceYear],['물가 환산(2020→기준년)', P.settings.cpiF || ''],['농작물 침수기간', KFRM.DURATIONS[P.settings.duration || 0]],['단독주택 구조(정보 없을 때)', P.settings.defStr],['공공시설 피해 비율계수', KFRM.PUBLIC],['사상자 원단위(천원/인, 2020)', KFRM.LIFE.unit / 1000],['이재민 발생률(명/PAR)', KFRM.LIFE.evacRate],['대피일수', KFRM.LIFE.evacDays],['농경지 피해원단위(원/㎡, 2020)', KFRM.FARM_UNIT]]);
+  add('투자우선순위', [['순위','지구명','B/C','B/C배점','PFD','장기간위험도','생태자연도','지역낙후도','통합지표']].concat(AHP.rows.slice().sort(function(a, b){ return a.rank - b.rank; }).map(function(a){ return [a.rank, a.name, a.BC, a.sBC, a.sPFD, a.sRisk, a.sEco, a.sLag, a.score]; })));
+  var as = [['읍면동','건물','건물내용물','논작물','밭작물','유형자산','재고자산']]; Object.keys(OUT.assets).forEach(function(n){ var a = OUT.assets[n]; as.push([n, a.buildingTotal, a.contents, a.paddy, a.field, a.tangible, a.stock]); }); add('자산가치', as);
+  add('침수면적', [['빈도(년)','지구명','침수심','토지피복','면적(㎡)']].concat(P.gis.map(function(g){ return [g.T, g.district, g.depth, g.cover || g.cls, g.area]; })));
+  res.forEach(function(r){ var x = designOf(r); if (!x.e) return; add(('CF ' + r.district.name).slice(0, 31), [['년차','투자비','유지관리비','잔존가치','비용','현가계수','비용현가','편익','편익현가']].concat(x.e.rows.map(function(q){ return [q.t, q.invest, q.om, q.residual, q.cost, q.df, q.costPV, q.benefit, q.benefitPV]; }))); });
+  add('설정', [['항목','값']].concat(Object.keys(P.settings).map(function(k){ var v = P.settings[k]; return [k, typeof v === 'object' ? JSON.stringify(v) : v]; })));
+  saveWb(wb, '치수경제성분석_' + ((P.districts[0] || {}).river || '결과') + '.xlsx');
+};
+})();
+</script>
+</body>
+</html>
