@@ -17,7 +17,8 @@ tpljs = '<script>window.TPL_B64 = "' + base64.b64encode(tpl).decode() + '";</scr
 _t = json.dumps({k: v for k, v in sample.items() if k not in ('tables', 'v9', 'project')}, ensure_ascii=False)
 for _a, _b in (('상두천', '예시천'), ('정읍시', '가상시'), ('산외면', '가상면')): _t = _t.replace(_a, _b)
 pub = json.loads(_t); pub['tables'] = sample['tables']; pub['project'] = {'name': '예시천 치수경제성(예시)', 'river': '예시천'}
-public_page = app.replace('<!--LIBS-->', code + data(pub) + tpljs)
+libs = code + data(pub)   # 모든 배포본(로컬·claude.ai·구글스크립트·깃허브)에 가상 이름 예시를 씀 — 원본 sample.json은 src에만 둠
+public_page = app.replace('<!--LIBS-->', libs + tpljs)
 if 'public' in sys.argv:   # 깃허브 저장소에서: python src/build.py public  →  ../index.html 만 만듦
     open(os.path.join(root, 'index.html'), 'w', encoding='utf-8', newline='\n').write(public_page)
     print('index.html', len(public_page)); sys.exit()
