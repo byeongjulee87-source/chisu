@@ -229,8 +229,8 @@ var REPORT = (function () {
       return '<hp:t>' + s + '</hp:t>';
     });
     xml = xml.split('{{TITLE}}').join(esc((river ? river + ' ' : '') + '치수경제성 분석'));
-    if (st.pfdCode) xml = xml.replace(/<hp:t>3302<\/hp:t>/, '<hp:t>' + esc(st.pfdCode) + '</hp:t>');
-    if (st.pfdArea) xml = xml.replace(/<hp:t>정읍시<\/hp:t>/, '<hp:t>' + esc(st.pfdArea) + '</hp:t>');
+    xml = xml.replace(/<hp:t>3302<\/hp:t>/, '<hp:t>' + esc(st.pfdCode || '-') + '</hp:t>');   // 양식의 PFD 단위구역(입력 없으면 '-')
+    xml = xml.replace(/<hp:t>정읍시<\/hp:t>/, '<hp:t>' + esc(st.pfdArea || '-') + '</hp:t>');
     xml = xml.replace(/<hp:t>[^<]*\(계속\)\s*<\/hp:t>/g, '<hp:t></hp:t>');
     // 4) 줄 배치 캐시 삭제(한글이 다시 계산)
     xml = xml.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');

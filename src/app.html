@@ -116,7 +116,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
     <table class="files" id="files"></table>
     <div class="row">
       <button id="bTpl">입력양식 내려받기</button>
-      <button id="bSample">상두천 예시로 해보기</button>
+      <button id="bSample">예시로 해보기</button>
     </div>
   </div>
 
@@ -208,7 +208,8 @@ $('form').addEventListener('change', function(e){
 $('pGuide').onclick = function(){ form(GUIDE); if (OUT) econ(); };
 $('pV9').onclick = function(){ form(V9); if (OUT) econ(); };
 form(GUIDE);
-if (!(SAMPLE.districts || []).length) { $('bSample').style.display = 'none'; $('pV9').style.display = 'none'; }   // 공개용(과업 자료 없음)
+if (!(SAMPLE.districts || []).length) $('bSample').style.display = 'none';
+if (!SAMPLE.v9) $('pV9').style.display = 'none';   // 공개용: 가상 이름 예시, 기존 엑셀 재현값 없음
 
 // ---------------- 파일 분류 ----------------
 var ROLES = {input:'입력 엑셀', stats:'통계연보(읍면동)', section:'측선·홍수위', terrain:'수치지도', zone:'지구×토지피복 구획', district:'지구계', cover:'토지피복', flood:'침수심 SHP', building:'K-FRM 건물', vehicle:'K-FRM 차량(집계구)', population:'K-FRM 인구(집계구)', farmland:'K-FRM 농경지', template:'보고서 양식', skip:'사용 안 함'};
@@ -605,8 +606,8 @@ $('bRun').onclick = function(){
   }).catch(function(e){ log('오류: ' + e.message); console.error(e); }).then(function(){ $('bRun').disabled = false; });
 };
 $('bSample').onclick = function(){
-  P = JSON.parse(JSON.stringify(SAMPLE)); P.wse = {}; form(V9); FILES = []; PREVIEW = null; KGRID = null; KINV = null; show();
-  $('log').textContent = ''; log('상두천 예시(기존 엑셀의 입력값·GIS 면적)를 불러왔습니다. "분석하고 보고서 만들기"를 누르세요.');
+  P = JSON.parse(JSON.stringify(SAMPLE)); P.wse = {}; form(SAMPLE.v9 ? V9 : Object.assign({}, GUIDE, {method:'mdfda'})); FILES = []; PREVIEW = null; KGRID = null; KINV = null; show();
+  $('log').textContent = ''; log(((SAMPLE.districts[0] || {}).river || '') + ' 예시(입력값·침수면적표)를 불러왔습니다. 침수면적표만 있는 예시라 다차원법으로 계산합니다. "분석하고 보고서 만들기"를 누르세요.');
 };
 
 function econ(){
@@ -673,7 +674,7 @@ $('bTpl').onclick = function(){
     Object.keys(p.emds).map(function(n){ var e = p.emds[n]; return [n, e.areaHa, e.households, e.population, e.vulnerable || ''].concat(LANDK.map(function(k){ return e.land[k] || 0; }), HOUSEK.map(function(k){ return e.houses[k] || 0; }), CROPK.map(function(k){ return e.crops[k] || 0; }), WORKK.map(function(k){ return e.workers[k] || 0; })); })));
   var D = UNIT_DEF, FT = Object.keys(D.factor).map(Number);
   add('단가', [['항목','축제 구간','보축 구간','호안 구간','단위'],['축제공', D.levee.축제공, D.reinf.축제공, D.revet.축제공, '천원/m'],['호안공', D.levee.호안공, D.reinf.호안공, D.revet.호안공, '천원/m'],['보상비', D.levee.보상비, D.reinf.보상비, D.revet.보상비, '천원/m'],[],
-    ['부대공률', D.sub, '', '', '% (축제공+호안공+구조물공)'],['제경비율', D.gen, '', '', '% (직접공사비+부대공)'],[],['빈도','보정계수','','','축제공·호안공에 곱함(50년=1)']].concat(FT.map(function(T){ return [T, D.factor[T]]; })).concat([[],['※ 기본값은 상두천 하천기본계획 공사비 실적(50년, 지구 중앙값)입니다. 회사·과업 단가로 바꾸면 공사비 시트가 다시 계산됩니다.']]));
+    ['부대공률', D.sub, '', '', '% (축제공+호안공+구조물공)'],['제경비율', D.gen, '', '', '% (직접공사비+부대공)'],[],['빈도','보정계수','','','축제공·호안공에 곱함(50년=1)']].concat(FT.map(function(T){ return [T, D.factor[T]]; })).concat([[],['※ 기본값은 기존 하천기본계획 공사비 실적(50년, 지구 중앙값)입니다. 회사·과업 단가로 바꾸면 공사비 시트가 다시 계산됩니다.']]));
   // 공사비: 지구 시트(행 2~)를 수식으로 참조 — 지구를 더 붙여넣어도 40행까지 자동
   var ws = XLSX.utils.aoa_to_sheet([['지구명','빈도(년)'].concat(COSTK.map(function(k){ return k + '(백만원)'; }))]), r = 1, Ts = (CUR.Ts || GUIDE.Ts), fr = '$A$' + 10 + ':$B$' + (9 + FT.length);
   for (var g = 2; g <= 41; g++) Ts.forEach(function(T){
@@ -689,7 +690,7 @@ $('bTpl').onclick = function(){
   });
   ws['!ref'] = 'A1:H' + r; XLSX.utils.book_append_sheet(wb, ws, '공사비');
   add('홍수위', [['측점','20년','30년','50년','80년','100년','200년'],['0+000','','','','','',''],['0+050','','','','','','']]);
-  add('작성요령', [['시트','작성 방법'],['지구','"1.1 하천개수계획 현황" 표를 그대로 붙여넣기(머리글 2줄 가능)'],['읍면동','통계연보(세대·인구·지목면적·종사자 A~O), 주택총조사(주택유형별 호수), 농산물 생산면적. KOSIS에서 받은 읍면동별 표(엑셀·CSV)를 화면에 같이 끌어놓으면 빈칸을 자동으로 채움 — 이 시트는 비워 둬도 됨'],['공사비','자동 계산(수식): 지구 시트 연장 × 단가 시트 m당 단가 × 빈도 보정계수, 부대공·제경비는 비율, 구조물공은 지구 시트 값. 실제 개략사업비가 있으면 값으로 덮어써도 됨'],['단가','공종별 m당 단가(천원)·부대공률·제경비율·빈도 보정계수. 기본값은 상두천 실적이므로 과업 단가로 바꿔 쓰기'],['홍수위','개수 전 측점별 홍수위(EL.m). 측선 SHP에 빈도별 홍수위 필드가 있으면 비워도 됨'],['GIS면적','(선택) 이미 계산한 지구·빈도·침수심·토지피복 면적이 있으면 넣기 — 하도버퍼링 생략(다차원법만 가능)'],['K-FRM','건물·집계구 인구·차량·농경지 SHP(zip)를 화면에 함께 끌어놓기. 인구 인벤토리가 없으면 읍면동 인구·취약인구를 주거지역(대지)에 나눠 씀'],['종사자 A~O','A 농림 B 어업 C 광업 D 제조 E 전기가스수도 F 건설 G 도소매 H 숙박음식 I 운수창고통신 J 금융보험 K 부동산사업서비스 L 공공행정 M 교육 N 보건사회복지 O 기타서비스']]);
+  add('작성요령', [['시트','작성 방법'],['지구','"1.1 하천개수계획 현황" 표를 그대로 붙여넣기(머리글 2줄 가능)'],['읍면동','통계연보(세대·인구·지목면적·종사자 A~O), 주택총조사(주택유형별 호수), 농산물 생산면적. KOSIS에서 받은 읍면동별 표(엑셀·CSV)를 화면에 같이 끌어놓으면 빈칸을 자동으로 채움 — 이 시트는 비워 둬도 됨'],['공사비','자동 계산(수식): 지구 시트 연장 × 단가 시트 m당 단가 × 빈도 보정계수, 부대공·제경비는 비율, 구조물공은 지구 시트 값. 실제 개략사업비가 있으면 값으로 덮어써도 됨'],['단가','공종별 m당 단가(천원)·부대공률·제경비율·빈도 보정계수. 기본값은 기존 과업 실적이므로 과업 단가로 바꿔 쓰기'],['홍수위','개수 전 측점별 홍수위(EL.m). 측선 SHP에 빈도별 홍수위 필드가 있으면 비워도 됨'],['GIS면적','(선택) 이미 계산한 지구·빈도·침수심·토지피복 면적이 있으면 넣기 — 하도버퍼링 생략(다차원법만 가능)'],['K-FRM','건물·집계구 인구·차량·농경지 SHP(zip)를 화면에 함께 끌어놓기. 인구 인벤토리가 없으면 읍면동 인구·취약인구를 주거지역(대지)에 나눠 씀'],['종사자 A~O','A 농림 B 어업 C 광업 D 제조 E 전기가스수도 F 건설 G 도소매 H 숙박음식 I 운수창고통신 J 금융보험 K 부동산사업서비스 L 공공행정 M 교육 N 보건사회복지 O 기타서비스']]);
   saveWb(wb, '치수경제성_입력양식.xlsx');
 };
 
