@@ -2209,12 +2209,12 @@ if (!(SAMPLE.districts || []).length) $('bSample').style.display = 'none';
 if (!SAMPLE.v9) $('pV9').style.display = 'none';   // 공개용: 가상 이름 예시, 기존 엑셀 재현값 없음
 
 // ---------------- 파일 분류 ----------------
-var ROLES = {input:'입력 엑셀', xsec:'횡단면도(공사비)', stats:'통계연보(읍면동)', section:'측선·홍수위', terrain:'수치지도', zone:'지구×토지피복 구획', district:'지구계', cover:'토지피복', flood:'침수심 SHP', building:'K-FRM 건물', vehicle:'K-FRM 차량(집계구)', population:'K-FRM 인구(집계구)', farmland:'K-FRM 농경지', template:'보고서 양식', skip:'사용 안 함'};
+var ROLES = {input:'입력 엑셀', xsec:'횡단면도(공사비)', basin:'유역계(지구 자동 구획 범위)', stats:'통계연보(읍면동)', section:'측선·홍수위', terrain:'수치지도', zone:'지구×토지피복 구획', district:'지구계', cover:'토지피복', flood:'침수심 SHP', building:'K-FRM 건물', vehicle:'K-FRM 차량(집계구)', population:'K-FRM 인구(집계구)', farmland:'K-FRM 농경지', template:'보고서 양식', skip:'사용 안 함'};
 var NEED = [
   ['input','입력 엑셀','지구(1.1 하천개수계획 현황 그대로) · 읍면동 통계 · 공사비 · (선택) 홍수위'],
   ['section','측선 + 개수전 홍수위','측선 SHP(빈도별 홍수위 필드) 또는 측선 DXF(측점 문자) + 엑셀 "홍수위" 시트'],
   ['terrain','수치지도','등고선(F00171xx)·표고점(F00272xx) DXF'],
-  ['zone','지구계 · 토지피복','지구계 SHP 또는 지구 DXF(닫힌 선 + 지구명 문자) + 환경부 토지피복도 SHP — 토지피복도는 한 번 넣으면 이 브라우저가 기억, K-FRM은 없어도 됨'],
+  ['zone','지구계 · 토지피복','지구계 SHP·DXF(닫힌 선 + 지구명) — 없으면 유역계와 측선·지구 구간·안별로 자동 구획 + 환경부 토지피복도 SHP(한 번 넣으면 기억, K-FRM은 없어도 됨)'],
   ['xsec','횡단면도 (선택)','원지형·계획지형 레이어가 있는 횡단면도 DXF — 공종별 수량 × 아래 단가로 공사비 자동 산정'],
   ['stats','통계연보 (선택)','KOSIS 등에서 받은 읍면동별 표(세대·인구, 토지지목, 주택유형, 산업별 종사자, 연령별 인구, 농작물) 엑셀·CSV — 읍면동 시트의 빈칸을 자동으로 채움'],
   ['kfrm','K-FRM 인벤토리 (권장)','건물 SHP(K-CDMS 또는 도로명주소 전자지도 건물) · 집계구 인구·차량 · 농경지 — 없으면 인구는 읍면동 통계, 농작물은 토지피복으로 대신'],
@@ -2256,6 +2256,11 @@ function addFiles(list){
         it.dxf = GISR.parseDxf(it.text);
         it.role = it.dxf.contours.length > 20 || /고도|수치|지형|등고/.test(f.name) ? 'terrain' : 'section';
         it.info = it.role === 'terrain' ? '등고선 ' + it.dxf.contours.length + ' · 표고점 ' + it.dxf.points.length : '선 ' + it.dxf.lines.length + ' · 문자 ' + it.dxf.texts.length;
+        var closed = it.dxf.lines.filter(function(l){ var c = l.coords, n = c.length; return n > 3 && (l.closed || Math.hypot(c[0][0] - c[n - 1][0], c[0][1] - c[n - 1][1]) < 0.5); });
+        if (it.role !== 'terrain' && closed.length && closed.length <= 5 && !it.dxf.texts.some(function(t){ return /지구/.test(t.text || ''); }) && (/유역|basin/i.test(f.name) || closed.length === it.dxf.lines.length)) {
+          it.role = 'basin'; it.basin = closed.map(function(l){ var r = l.coords.slice(); if (r[0][0] !== r[r.length - 1][0] || r[0][1] !== r[r.length - 1][1]) r.push(r[0]); return r; });
+          it.info = '유역계 닫힌 선 ' + closed.length + '개 — 지구계가 없으면 측선·지구 구간·안별로 지구 범위를 자동으로 만들고 이 범위로 자름'; show(); return;
+        }
         if (it.role !== 'terrain' && !/측선|단면|횡단|종단/.test(f.name)) {
           var dfc = dxfDistricts(it.dxf);
           if (dfc.features.length && (/지구/.test(f.name) || dfc.features.length >= 2 || !it.dxf.texts.some(function(t){ return GISR.stationKey(t.text); }))) {
@@ -2270,6 +2275,7 @@ function addFiles(list){
           var it = {name:f.name + (layers.length > 1 ? ' / ' + L.name : ''), fc:L.fc, crs:L.crs, role:'skip', zbuf:zbuf, zname:f.name}, t = gtype(L.fc), n = f.name + ' ' + L.name;
           var kr = kfrmRole(L.fc);
           if (kr) it.role = kr;
+          else if (/Polygon/.test(t) && /유역/.test(n) && !districtField(L.fc)) { it.role = 'basin'; }
           else if (/LineString/.test(t)) { it.role = 'section'; it.stField = stationField(L.fc); it.wse = wseFields(L.fc); }
           else if (/Polygon/.test(t)) {
             var cf = coverField(L.fc), df = districtField(L.fc);
@@ -2325,10 +2331,10 @@ function loadCachedCover(){
 }
 function has(r){ return FILES.some(function(f){ return f.role === r; }); }
 function show(){
-  var st = {input:has('input'), section:has('section'), terrain:has('terrain'), zone:has('zone') || has('district'), kfrm:has('building'), stats:has('stats'), xsec:has('xsec'), template:has('template')};
+  var st = {input:has('input'), section:has('section'), terrain:has('terrain'), zone:has('zone') || has('district') || has('basin'), kfrm:has('building'), stats:has('stats'), xsec:has('xsec'), template:has('template')};
   $('need').innerHTML = NEED.map(function(n){
     var ok = st[n[0]], opt = n[0] === 'template' || n[0] === 'kfrm' || n[0] === 'stats' || n[0] === 'xsec';
-    var fs = FILES.filter(function(f){ return f.role === n[0] || (n[0] === 'zone' && /district|cover/.test(f.role)) || (n[0] === 'kfrm' && /building|vehicle|population|farmland/.test(f.role)); }).map(function(f){ return f.name; });
+    var fs = FILES.filter(function(f){ return f.role === n[0] || (n[0] === 'zone' && /district|cover|basin/.test(f.role)) || (n[0] === 'kfrm' && /building|vehicle|population|farmland/.test(f.role)); }).map(function(f){ return f.name; });
     return '<div class="' + (ok ? 'ok' : opt ? 'opt' : '') + '"><span class="st">' + (ok ? '✓' : opt ? '+' : '') + '</span><span><b>' + n[1] + '</b><small>' + n[2] + '</small>' + (fs.length ? '<span class="file">' + fs.slice(0, 2).join(', ') + (fs.length > 2 ? '<details class="more"><summary>외 ' + (fs.length - 2) + '개 더보기</summary>' + fs.slice(2).join(', ') + '</details>' : '') + '</span>' : '') + '</span></div>';
   }).join('');
   $('files').innerHTML = FILES.map(function(it, i){
@@ -2357,7 +2363,7 @@ function headerMap(rows, keys){
     var names = [];
     for (var c = 0; c < 40; c++) { var s = ''; for (var r = 0; r <= h + 2 && r < rows.length; r++) s += ' ' + norm(rows[r][c]); names.push(s); }
     var map = {}; keys.forEach(function(k){ var i = names.findIndex(function(n){ return k[1].test(n); }); if (i >= 0) map[k[0]] = i; });
-    if (map.name !== undefined && Object.keys(map).length >= 4) { var start = h + 1; while (start < rows.length && !/지구/.test(String(rows[start][map.name] || ''))) start++; return {map:map, start:start}; }
+    if (map.name !== undefined && Object.keys(map).length >= 4) { var start = h + 1; while (start < rows.length && (/지구명|^\s*$/.test(String(rows[start][map.name] || '')) || /하천명|지구명|안별/.test(rows[start].join(' ')))) start++; return {map:map, start:start}; }
   }
   return null;
 }
@@ -2544,11 +2550,12 @@ function readInput(buf, name){
   if (!hm) throw new Error('지구 시트에서 하천명·지구명·안별·읍면동 머리글을 찾지 못했습니다.');
   var lastRiver = '';
   for (var r = hm.start; r < rows.length; r++) {
-    var row = rows[r], nm = String(row[hm.map.name] || '').trim(); if (!nm || !/지구/.test(nm)) continue;
+    var row = rows[r], nm = String(row[hm.map.name] || '').trim(); if (!nm || /^(계|합계|소계|총계)$/.test(nm) || /지구명/.test(nm)) continue;
     var rv = String(row[hm.map.river] || '').trim() || lastRiver; lastRiver = rv;
     var g = function(k){ return hm.map[k] !== undefined ? row[hm.map[k]] : ''; };
     p.districts.push({river:rv, name:nm, bank:String(g('bank')).trim(), sido:String(g('sido')).trim(), sigungu:String(g('sigungu')).trim(), emd:String(g('emd')).trim(),
       section:String(g('section')).trim(), designT:+g('T') || 50, lenLevee:+g('levee') || 0, lenReinf:+g('reinf') || 0, lenRevet:+g('revet') || 0, struct:+g('struct') || 0});
+    var dl = p.districts[p.districts.length - 1]; if (!dl.emd && !dl.section && !(dl.lenLevee + dl.lenReinf + dl.lenRevet)) p.districts.pop();   // 주석·빈 줄
   }
   var obj = function(re){ var s = wb.SheetNames.find(function(x){ return re.test(x.replace(/\s/g,'')); }); return s ? XLSX.utils.sheet_to_json(wb.Sheets[s], {defval:''}) : []; };
   var keyed = function(r){ var g = {}; Object.keys(r).forEach(function(k){ g[norm(k).replace(/^종사자/, '')] = r[k]; }); return g; };
@@ -2609,8 +2616,54 @@ function buildGis(){
   var Fs = FILES.find(function(f){ return f.role === 'section'; }), Fts = FILES.filter(function(f){ return f.role === 'terrain' && f.dxf; }), Ft = Fts.length ? {dxf:{contours:[].concat.apply([], Fts.map(function(f){ return f.dxf.contours; })), points:[].concat.apply([], Fts.map(function(f){ return f.dxf.points; }))}} : null;
   var Ffl = FILES.filter(function(f){ return f.role === 'flood' && f.T; });
   var target = (Fz || Fd || {}).crs || (Fs && Fs.crs) || 'EPSG:5186'; KTARGET = target; KGRID = null; KINV = null;
+  // 0) 측선·수치지도 먼저 (지구 자동 구획에도 씀)
+  var Fb = FILES.find(function(f){ return f.role === 'basin'; });
+  var secs = null, contours = null, points = null;
+  var refBoxOf = function(){
+    var it = [Fz, Fc, Fb].filter(function(x){ return x && x.fc && x.crs; })[0]; if (!it) return null;
+    var t = CRS.transformer(it.crs, target), rp = [];
+    (it.fc.features || []).slice(0, 3000).forEach(function(x){ var g = x.geometry; if (!g) return; var c = g.type === 'Polygon' ? g.coordinates[0] : g.type === 'MultiPolygon' ? g.coordinates[0][0] : null; if (c) c.forEach(function(q){ rp.push(t(q)); }); });
+    return rp.length ? CRS.bboxOf(rp) : null;
+  };
+  var guessCrs = function(sample, box){ return CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : (box ? CRS.guess(sample, box, target, [Fs && Fs.crs, (Fz || Fc || {}).crs, target]) : null) || target; };
+  if (Fs) {
+    secs = [];
+    if (Fs.fc) {
+      var ts = CRS.transformer(Fs.crs || target, target);
+      IO.lineCoords(Fs.fc).forEach(function(l){
+        var w = {}, key = Fs.stField ? GISR.stationKey(l.props[Fs.stField]) : null;
+        Object.keys(Fs.wse || {}).forEach(function(T){ var v = l.props[Fs.wse[T]]; if (typeof v === 'number') w[T] = v; });
+        if (!Object.keys(w).length && key && P.wse[key]) w = P.wse[key];
+        if (Object.keys(w).length) secs.push({coords:mapCoords(l.coords, ts), wse:w, station:key});
+      });
+    } else if (Fs.dxf) {
+      var lines = Fs.dxf.lines.filter(function(l){ return /측선|단면|SEC/i.test(l.layer); });
+      if (!lines.length) lines = Fs.dxf.lines;
+      GISR.joinStations(lines, Fs.dxf.texts).forEach(function(l){ if (l.station && P.wse[l.station]) secs.push({coords:l.coords, wse:P.wse[l.station], station:l.station, raw:true}); });
+      if (secs.length) { var c0 = guessCrs([].concat.apply([], secs.map(function(s){ return s.coords; })).slice(0, 2000), refBoxOf()); log('측선 DXF 좌표계: ' + (CRS.LABEL[c0] || c0)); var t1 = CRS.transformer(c0, target); secs.forEach(function(s){ s.coords = mapCoords(s.coords, t1); }); }
+    }
+    if (secs.length < 2) throw new Error('홍수위가 붙은 측선이 ' + secs.length + '개뿐입니다. 측선 SHP의 빈도별 홍수위 필드나 엑셀 "홍수위" 시트를 확인하세요.');
+  }
+  if (Ft && secs) {
+    var sbox = CRS.bboxOf([].concat.apply([], secs.map(function(s){ return s.coords; })));
+    if (Fts.length > 1) log('수치지도 ' + Fts.length + '도엽을 합쳐 지형을 만듭니다.');
+    var cpts = [].concat.apply([], Ft.dxf.contours.filter(function(c, i){ return i % Math.max(1, Math.ceil(Ft.dxf.contours.length / 400)) === 0; }).map(function(c){ return c.coords; }));
+    var ct = CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : CRS.guess(cpts.length ? cpts : Ft.dxf.points.map(function(q){ return [q.x, q.y]; }), sbox, target, [Fs && Fs.crs, (Fz || Fc || {}).crs, target]) || target;
+    log('수치지도 좌표계: ' + (CRS.LABEL[ct] || ct));
+    var tt = CRS.transformer(ct, target);
+    contours = Ft.dxf.contours.map(function(c){ return {coords:mapCoords(c.coords, tt), z:c.z}; });
+    points = Ft.dxf.points.map(function(q){ var p = tt([q.x, q.y]); return {x:p[0], y:p[1], z:q.z}; });
+  }
   // 1) 구획(지구 × 토지피복)
-  var zones = [];
+  var zones = [], autoD = null;
+  if (!Fz && !Fd && secs) {
+    var bas = null;
+    if (Fb) {
+      if (Fb.basin) { var bc = guessCrs([].concat.apply([], Fb.basin).filter(function(q, i){ return i % 5 === 0; }), CRS.bboxOf([].concat.apply([], secs.map(function(s){ return s.coords; })))); var tb = CRS.transformer(bc, target); bas = Fb.basin.map(function(r){ return mapCoords(r, tb); }); log('유역계 DXF 좌표계: ' + (CRS.LABEL[bc] || bc)); }
+      else if (Fb.fc) { var tbs = CRS.transformer(Fb.crs || target, target); bas = IO.polyRings(Fb.fc).map(function(z){ return mapCoords(z.rings[0], tbs); }); }
+    }
+    autoD = autoDistricts(secs, contours, points, bas);
+  }
   if (Fd && !Fd.fc && Fd.dxf) { Fd.fc = dxfDistricts(Fd.dxf); Fd.df = '지구명'; Fd.dxfRaw = true; }
   var dcrs = Fd ? Fd.crs : null;
   if (Fd && Fd.dxfRaw) {
@@ -2621,13 +2674,13 @@ function buildGis(){
     dcrs = CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : (ref ? CRS.guess(dpts, ref, target, [Fs && Fs.crs, Fc && Fc.crs, target]) : null) || target;
     log('지구 DXF: 지구 ' + Fd.fc.features.length + '개, 좌표계 ' + (CRS.LABEL[dcrs] || dcrs));
   }
-  if (Fz || Fd) {
+  if (Fz || Fd || autoD) {
     if (Fz) {
       var tz = CRS.transformer(Fz.crs, target);
       IO.polyRings(Fz.fc).forEach(function(z){ var d = matchDistrict(z.props[Fz.df]); if (!d) return; zones.push({rings:z.rings.map(function(r){ return mapCoords(r, tz); }), district:d, cover:coverName(z.props[Fz.cf])}); });
     } else {
       var td = CRS.transformer(dcrs, target), tc = Fc ? CRS.transformer(Fc.crs, target) : null;
-      var D = IO.polyRings(Fd.fc).map(function(z){ var f = {type:'Feature', properties:{d:matchDistrict(z.props[Fd.df])}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, td); })}}; f.bb = turf.bbox(f); return f; }).filter(function(f){ return f.properties.d; });
+      var D = autoD || IO.polyRings(Fd.fc).map(function(z){ var f = {type:'Feature', properties:{d:matchDistrict(z.props[Fd.df])}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, td); })}}; f.bb = turf.bbox(f); return f; }).filter(function(f){ return f.properties.d; });
       var DB = D.reduce(function(b, d){ return [Math.min(b[0], d.bb[0]), Math.min(b[1], d.bb[1]), Math.max(b[2], d.bb[2]), Math.max(b[3], d.bb[3])]; }, [Infinity, Infinity, -Infinity, -Infinity]);
       if (Fc) IO.polyRings(Fc.fc).forEach(function(z){
         var f = {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, tc); })}}, bb = turf.bbox(f), cv = coverName(z.props[Fc.cf]);
@@ -2643,35 +2696,11 @@ function buildGis(){
       var got = {}; zones.forEach(function(z){ got[z.district] = 1; });
       var bare = D.filter(function(d){ return !got[d.properties.d]; });
       bare.forEach(function(d){ zones.push({rings:d.geometry.coordinates, district:d.properties.d, cover:''}); });
-      if (bare.length) log((Fc ? '⚠ 토지피복도가 덮지 않는 지구 ' : '토지피복도 없음 — 지구계만 사용: ') + bare.map(function(d){ return d.properties.d; }).join(', ') + (CUR.method === 'kfrm' ? ' (K-FRM은 건물·인구 인벤토리로 계산)' : ' (다차원법은 토지피복이 있어야 주거·농업·산업 피해가 나옵니다)'));
+      if (bare.length) log((Fc ? '⚠ 토지피복도가 덮지 않는 지구 ' : '토지피복도 없음 — 지구계만 사용: ') + bare.map(function(d){ return d.properties.d; }).filter(function(n, i, arr){ return arr.indexOf(n) === i; }).join(', ') + (CUR.method === 'kfrm' ? ' (K-FRM은 건물·인구 인벤토리로 계산)' : ' (다차원법은 토지피복이 있어야 주거·농업·산업 피해가 나옵니다)'));
     }
   }
   // 2) 하도버퍼링
-  if (Fs && Ft && zones.length) {
-    var secs = [];
-    if (Fs.fc) {
-      var ts = CRS.transformer(Fs.crs || target, target);
-      IO.lineCoords(Fs.fc).forEach(function(l){
-        var w = {}, key = Fs.stField ? GISR.stationKey(l.props[Fs.stField]) : null;
-        Object.keys(Fs.wse || {}).forEach(function(T){ var v = l.props[Fs.wse[T]]; if (typeof v === 'number') w[T] = v; });
-        if (!Object.keys(w).length && key && P.wse[key]) w = P.wse[key];
-        if (Object.keys(w).length) secs.push({coords:mapCoords(l.coords, ts), wse:w, station:key});
-      });
-    } else {
-      var lines = Fs.dxf.lines.filter(function(l){ return /측선|단면|SEC/i.test(l.layer); });
-      if (!lines.length) lines = Fs.dxf.lines;
-      GISR.joinStations(lines, Fs.dxf.texts).forEach(function(l){ if (l.station && P.wse[l.station]) secs.push({coords:l.coords, wse:P.wse[l.station], station:l.station, raw:true}); });
-    }
-    if (secs.length < 2) throw new Error('홍수위가 붙은 측선이 ' + secs.length + '개뿐입니다. 측선 SHP의 빈도별 홍수위 필드나 엑셀 "홍수위" 시트를 확인하세요.');
-    var zb = CRS.bboxOf([].concat.apply([], zones.map(function(z){ return z.rings[0]; })));
-    var dxfCrs = function(sample){ return CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : CRS.guess(sample, zb, target, [Fs && Fs.crs, (Fz || Fc || {}).crs, target]); };
-    if (secs[0].raw) { var c0 = dxfCrs([].concat.apply([], secs.map(function(s){ return s.coords; })).slice(0, 2000)); log('측선 DXF 좌표계: ' + (CRS.LABEL[c0] || c0)); var t1 = CRS.transformer(c0, target); secs.forEach(function(s){ s.coords = mapCoords(s.coords, t1); }); }
-    if (Fts.length > 1) log('수치지도 ' + Fts.length + '도엽을 합쳐 지형을 만듭니다.');
-    var cpts = [].concat.apply([], Ft.dxf.contours.filter(function(c, i){ return i % Math.max(1, Math.ceil(Ft.dxf.contours.length / 400)) === 0; }).map(function(c){ return c.coords; }));
-    var ct = dxfCrs(cpts.length ? cpts : Ft.dxf.points.map(function(q){ return [q.x, q.y]; })); log('수치지도 좌표계: ' + (CRS.LABEL[ct] || ct));
-    var tt = CRS.transformer(ct, target);
-    var contours = Ft.dxf.contours.map(function(c){ return {coords:mapCoords(c.coords, tt), z:c.z}; });
-    var points = Ft.dxf.points.map(function(q){ var p = tt([q.x, q.y]); return {x:p[0], y:p[1], z:q.z}; });
+  if (Fs && Ft && zones.length && contours) {
     var cell = +CUR.cell || 1, areaSum = zones.reduce(function(s, z){ return s + Math.abs(turf.area ? polyArea(z.rings[0]) : 0); }, 0);
     if (areaSum / (cell * cell) > 6e6) { cell = Math.ceil(Math.sqrt(areaSum / 6e6)); log('구획이 넓어 격자를 ' + cell + 'm로 키웠습니다.'); }
     var Ts = CUR.Ts || GUIDE.Ts, previewT = Math.max.apply(null, P.districts.map(function(d){ return d.designT; }).concat([Ts[0]]));
@@ -2690,6 +2719,58 @@ function buildGis(){
       .map(function(r){ var d = matchDistrict(r.district); return d ? Object.assign(r, {district:d}) : null; }).filter(Boolean);
   }
   return null;
+}
+// 지구계가 없을 때: 지구 구간(측점) 안의 측선을 안별 쪽으로 이어 지구 범위를 만듦(유역계가 있으면 그 안으로 자름)
+//  - 하도 중심 = 측선 위에서 지반(수치지도)이 가장 낮은 점(지형이 없으면 측선 가운데)
+//  - 흐름 방향 = 홍수위가 낮아지는 쪽, 좌안 = 하류를 보고 왼쪽
+//  - 측선 끝에서 200 m 더 넓혀 홍수터를 덮고, 실제 침수는 하도버퍼링 침수심으로 가려짐
+function autoDistricts(secs, contours, points, basin){
+  var km = P.districts.some(function(d){ return /\d+\s*\+\s*\d{3}/.test(String(d.section || '')); }), unit = km ? 1000 : 50;
+  var S = secs.filter(function(x){ return x.station; }).map(function(x){ var m = /(\d+)\s*\+\s*(\d+(?:\.\d+)?)/.exec(x.station); return m ? {d:+m[1] * unit + +m[2], c:x.coords, w:x.wse} : null; }).filter(Boolean).sort(function(a, b){ return a.d - b.d; });
+  if (S.length < 2) { log('⚠ 지구 자동 구획: 측점이 붙은 측선이 부족합니다.'); return []; }
+  var box = CRS.bboxOf([].concat.apply([], S.map(function(x){ return x.c; })));
+  var dem = contours && contours.length ? GISR.demSampler(contours, points || [], box, {}) : null;
+  var along = function(c, t){ var L = 0, seg = []; for (var i = 1; i < c.length; i++) { var l = Math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]); seg.push(l); L += l; }
+    var r = t * L; for (var j = 0; j < seg.length; j++) { if (r <= seg[j] || j === seg.length - 1) { var f = seg[j] ? Math.min(1, r / seg[j]) : 0; return [c[j][0] + f * (c[j + 1][0] - c[j][0]), c[j][1] + f * (c[j + 1][1] - c[j][1])]; } r -= seg[j]; } return c[0]; };
+  S.forEach(function(x){
+    var best = null, bz = Infinity;
+    if (dem) for (var k = 0; k <= 60; k++) { var q = along(x.c, k / 60), z = dem.at(q[0], q[1]); if (isFinite(z) && z < bz) { bz = z; best = q; } }
+    x.mid = best || along(x.c, 0.5); x.e0 = x.c[0]; x.e1 = x.c[x.c.length - 1];
+    var ws = Object.keys(x.w).map(function(k){ return x.w[k]; }).filter(isFinite); x.ws = ws.length ? ws.reduce(function(a, b){ return a + b; }, 0) / ws.length : NaN;
+  });
+  // 측점이 커질수록 홍수위가 높아지면(상류로 측점 증가) 하류 = 측점 감소 방향
+  var up = 0; for (var i = 1; i < S.length; i++) if (isFinite(S[i].ws) && isFinite(S[i - 1].ws)) up += S[i].ws > S[i - 1].ws ? 1 : -1;
+  var upward = up >= 0;
+  S.forEach(function(x, i){
+    var a = S[Math.max(0, i - 1)].mid, b = S[Math.min(S.length - 1, i + 1)].mid, u = [b[0] - a[0], b[1] - a[1]];
+    var dv = upward ? [-u[0], -u[1]] : u;     // 하류 방향
+    var leftOf = function(e){ return dv[0] * (e[1] - x.mid[1]) - dv[1] * (e[0] - x.mid[0]) > 0; };
+    var far = function(e){ var dx = e[0] - x.mid[0], dy = e[1] - x.mid[1], L = Math.hypot(dx, dy) || 1, k = (L + 200) / L; return [x.mid[0] + dx * k, x.mid[1] + dy * k]; };
+    x.L = far(leftOf(x.e0) ? x.e0 : x.e1); x.R = far(leftOf(x.e0) ? x.e1 : x.e0);
+  });
+  var out = [];
+  P.districts.forEach(function(d){
+    var rg = rangeOf(d.section); if (!rg) { log('⚠ ' + d.name + ': 구간(측점)을 읽지 못해 자동 구획을 건너뜀'); return; }
+    var lo = rg[0], hi = rg[1];
+    var inR = S.filter(function(x){ return x.d >= lo - 0.5 && x.d <= hi + 0.5; });
+    var before = S.filter(function(x){ return x.d < lo - 0.5; }).pop(), after = S.filter(function(x){ return x.d > hi + 0.5; })[0];
+    if (!inR.length || inR[0].d > lo + 0.5) { if (before) inR.unshift(before); }
+    if (!inR.length || inR[inR.length - 1].d < hi - 0.5) { if (after) inR.push(after); }
+    if (inR.length < 2) { log('⚠ ' + d.name + ': 구간 안 측선이 부족해 자동 구획을 건너뜀'); return; }
+    var sides = /좌/.test(d.bank) ? ['L'] : /우/.test(d.bank) ? ['R'] : ['L', 'R'];
+    var ring = sides.length === 2 ? inR.map(function(x){ return x.L; }).concat(inR.slice().reverse().map(function(x){ return x.R; }))
+      : inR.map(function(x){ return x.mid; }).concat(inR.slice().reverse().map(function(x){ return x[sides[0]]; }));
+    ring.push(ring[0]);
+    var f = {type:'Feature', properties:{d:d.name}, geometry:{type:'Polygon', coordinates:[ring]}};
+    if (basin && basin.length) {
+      var clipped = null;
+      basin.forEach(function(br){ try { var I = turf.intersect(f, {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[br]}}); if (I) clipped = clipped ? turf.union(clipped, I) : I; } catch (e) {} });
+      if (clipped) { (clipped.geometry.type === 'Polygon' ? [clipped.geometry.coordinates] : clipped.geometry.coordinates).forEach(function(rr){ var g = {type:'Feature', properties:{d:d.name}, geometry:{type:'Polygon', coordinates:rr}}; g.bb = turf.bbox(g); out.push(g); }); return; }
+    }
+    f.bb = turf.bbox(f); out.push(f);
+  });
+  log('지구 자동 구획(지구계가 없어 측선·구간·안별로 만듦 — 하도 포함이라 침수면적이 실제 지구계보다 크게 나올 수 있음): ' + out.length + '개 영역(' + P.districts.length + '개 지구, 측선 ' + S.length + '개' + (basin ? ', 유역계로 자름' : '') + ', 하류=' + (upward ? '측점 감소' : '측점 증가') + ' 방향)');
+  return out;
 }
 // K-FRM 인벤토리 → 분석 좌표계
 function featsOf(it, target){
