@@ -17,6 +17,24 @@ tpljs = '<script>window.TPL_B64 = "' + base64.b64encode(tpl).decode() + '";</scr
 _t = json.dumps({k: v for k, v in sample.items() if k not in ('tables', 'v9', 'project')}, ensure_ascii=False)
 for _a, _b in (('상두천', '예시천'), ('정읍시', '가상시'), ('산외면', '가상면')): _t = _t.replace(_a, _b)
 pub = json.loads(_t); pub['tables'] = sample['tables']; pub['project'] = {'name': '예시천 치수경제성(예시)', 'river': '예시천'}
+# 예시 값도 실제 과업 값이 드러나지 않도록 항목마다 0.75~1.25배로 바꿈(같은 입력이면 늘 같은 값)
+import hashlib
+def _fake(v, key):
+    h = int(hashlib.md5(key.encode('utf-8')).hexdigest()[:8], 16) / 0xFFFFFFFF
+    f = 0.75 + 0.5 * h
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or v == 0: return v
+    return int(round(v * f)) if isinstance(v, int) or float(v).is_integer() else round(v * f, 2)
+def _walk(o, path):
+    if isinstance(o, dict): return {k: _walk(v, path + '/' + str(k)) for k, v in o.items()}
+    if isinstance(o, list): return [_walk(v, path + '/' + str(i)) for i, v in enumerate(o)]
+    return _fake(o, path)
+if not sample.get('synthetic'):   # 깃허브 저장소의 sample.json은 이미 가상 값(synthetic) — 다시 바꾸지 않음
+    for _k in ('emds', 'costs'): pub[_k] = _walk(pub[_k], _k)
+    for _i, _g in enumerate(pub['gis']): _g['area'] = _fake(_g.get('area', 0), 'g/%d' % _i)
+    for _i, _d in enumerate(pub['districts']):
+        for _f in ('lenLevee', 'lenReinf', 'lenRevet'): _d[_f] = _fake(_d.get(_f, 0), 'd/%d/%s' % (_i, _f))
+pub['synthetic'] = True
+open(os.path.join(d, 'sample_public.json'), 'w', encoding='utf-8', newline=chr(10)).write(json.dumps(pub, ensure_ascii=False, indent=1))
 libs = code + data(pub)   # 모든 배포본(로컬·claude.ai·구글스크립트·깃허브)에 가상 이름 예시를 씀 — 원본 sample.json은 src에만 둠
 public_page = app.replace('<!--LIBS-->', libs + tpljs)
 if 'public' in sys.argv:   # 깃허브 저장소에서: python src/build.py public  →  ../index.html 만 만듦
