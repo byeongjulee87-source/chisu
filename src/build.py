@@ -4,7 +4,7 @@ d = os.path.dirname(os.path.abspath(sys.argv[0] if sys.argv[0] else __file__))
 root = os.path.dirname(d)
 rd = lambda n: open(os.path.join(d, n), encoding='utf-8').read()
 sample = json.loads(rd('sample.json'))
-libs = ''.join('<script>\n' + rd(n) + '\n</script>\n' for n in ('crs.js', 'io.js', 'kfrm.js', 'stats.js', 'qe.js', 'econ.js', 'gis.js', 'gisr.js', 'report.js'))
+libs = ''.join('<script>\n' + rd(n) + '\n</script>\n' for n in ('crs.js', 'io.js', 'kfrm.js', 'autoinv.js', 'stats.js', 'qe.js', 'econ.js', 'gis.js', 'gisr.js', 'report.js'))
 data = lambda sm: '<script>\nwindow.SAMPLE_DATA = ' + json.dumps(sm, ensure_ascii=False) + ';\n</script>\n'
 code = libs
 libs = code + data(sample)

@@ -119,6 +119,12 @@ svg.bc text{fill:var(--mute);font-size:11px}
       <p class="hint" style="margin:8px 0">단가를 넣은 공종만 계산합니다. 수량은 측점별 단면적·길이를 평균단면법으로 지구 구간(지구 시트 '구간') 만큼 합칩니다. 횡단면도는 계획빈도 단면으로 보고, 다른 빈도는 빈도 보정계수를 곱합니다.</p>
       <div class="form" id="priceForm"></div>
     </details>
+    <details class="price" id="apiBox"><summary>K-FRM 인벤토리 자동 불러오기 — 공공 API (본인 인증키, 이 브라우저에 저장)</summary>
+      <p class="hint" style="margin:8px 0">K-FRM으로 분석할 때 건물·집계구 인구 파일이 없으면, 지구 범위만 아래 서비스에서 바로 불러옵니다.
+        <b>건물</b>: 브이월드 「건축물정보」(건축물대장 주용도·구조·건축면적·사용승인일) — vworld.kr 인증키(발급 시 이 사이트 주소를 서비스 URL로 등록).
+        <b>집계구 인구</b>: 통계청 SGIS 오픈API — 서비스ID·보안키. 차량은 공개 자료가 없어 제외됩니다. 키는 이 브라우저에만 저장됩니다.</p>
+      <div class="form" id="apiForm"></div>
+    </details>
     <table class="files" id="files"></table>
     <div class="row">
       <button id="bTpl">입력양식 내려받기</button>
@@ -416,6 +422,47 @@ function priceForm(){
 priceForm();
 $('priceForm').addEventListener('change', function(e){ var k = e.target.dataset.p; if (!k) return; var v = String(e.target.value).replace(/,/g, '').trim(); if (v === '') delete PRICE[k]; else PRICE[k] = +v;
   try { localStorage.setItem(PRICE_KEY, JSON.stringify(PRICE)); } catch (x) {} });
+var API_KEY = 'chisu-api', API = {on:true, vkey:'', vdomain:'', ckey:'', csec:''};
+try { var av0 = JSON.parse(localStorage.getItem(API_KEY) || 'null'); if (av0) API = Object.assign(API, av0); } catch (e) {}
+function apiForm(){
+  var dom = API.vdomain || (/^https?:/.test(location.origin) ? location.origin : '');
+  $('apiForm').innerHTML = '<label>자동 불러오기<input type="checkbox" data-a="on"' + (API.on ? ' checked' : '') + '></label>' +
+    '<label>브이월드 인증키<input data-a="vkey" type="password" autocomplete="off" value="' + (API.vkey || '') + '"></label>' +
+    '<label>브이월드 등록 URL<input data-a="vdomain" value="' + dom + '" placeholder="인증키 발급 때 넣은 서비스 URL"></label>' +
+    '<label>SGIS 서비스ID<input data-a="ckey" type="password" autocomplete="off" value="' + (API.ckey || '') + '"></label>' +
+    '<label>SGIS 보안키<input data-a="csec" type="password" autocomplete="off" value="' + (API.csec || '') + '"></label>';
+}
+apiForm();
+$('apiForm').addEventListener('change', function(e){ var k = e.target.dataset.a; if (!k) return; API[k] = e.target.type === 'checkbox' ? e.target.checked : String(e.target.value).trim();
+  try { localStorage.setItem(API_KEY, JSON.stringify(API)); } catch (x) {} });
+// 분석 범위(침수심 격자)만 공공 API로 조회해 K-FRM 인벤토리 보충
+function autoInventory(){
+  if (!API.on || !KGRID || CUR.method !== 'kfrm') return Promise.resolve();
+  KINV = KINV || {buildings:[], vehicles:[], population:[], farmland:[]};
+  var needB = !KINV.buildings.length && API.vkey, needP = !KINV.population.length && API.ckey && API.csec;
+  if (!needB && !needP) return Promise.resolve();
+  var g = KGRID, pad = 30, box = [g.x0 - pad, g.y0 - pad, g.x0 + g.nx * g.cell + pad, g.y0 + g.ny * g.cell + pad], tgt = KTARGET || 'EPSG:5186';
+  var to4326 = CRS.transformer(tgt, 'EPSG:4326'), from4326 = CRS.transformer('EPSG:4326', tgt), toU = CRS.transformer(tgt, 'EPSG:5179'), fromU = CRS.transformer('EPSG:5179', tgt);
+  var area = function(rings){ return KFRM.polyArea(rings); };
+  var chain = Promise.resolve();
+  if (needB) chain = chain.then(function(){
+    log('브이월드 건축물정보에서 지구 범위 건물을 불러오는 중…');
+    return AUTOINV.buildings({box:box, tf:to4326, back:from4326, key:API.vkey, domain:API.vdomain || (/^https?:/.test(location.origin) ? location.origin : ''), centroid:KFRM.centroid, prog:function(s){ $('prog').firstChild.title = s; }})
+      .then(function(feats){ var B = KFRM.buildings(feats, CUR.defStr); KINV.buildings = KINV.buildings.concat(B.list);
+        log('브이월드 건물 ' + B.list.length.toLocaleString() + '동 불러옴' + (B.skip ? ' (용도·면적 없음 ' + B.skip + '동 제외)' : '')); })
+      .catch(function(e){ log('⚠ 건물 자동 불러오기 실패 — ' + e.message + ' (인증키·등록 URL 확인, 또는 건물 SHP를 직접 넣기)'); });
+  });
+  if (needP) chain = chain.then(function(){
+    log('SGIS에서 지구 범위 집계구 인구를 불러오는 중…');
+    var ev = Object.keys(P.emds || {}).map(function(k){ return P.emds[k]; }).filter(function(e){ return e.population > 0 && e.vulnerable > 0; });
+    var vul = ev.length ? ev.reduce(function(s, e){ return s + e.vulnerable; }, 0) / ev.reduce(function(s, e){ return s + e.population; }, 0) : 0;
+    return AUTOINV.population({box:box, toU:toU, fromU:fromU, ckey:API.ckey, csec:API.csec, vul:vul, area:area})
+      .then(function(r){ KINV.population = KINV.population.concat(KFRM.population(r.feats.filter(function(f){ return f.rings && f.rings.length; })));
+        log('SGIS 집계구 ' + r.areas + '개 중 ' + (r.areas - r.missing) + '개 인구 불러옴' + (r.year ? ' (' + r.year + '년)' : '') + (vul ? ', 취약인구 비율 ' + (vul * 100).toFixed(1) + '%(읍면동 통계)' : ', 취약인구 비율 없음 — 읍면동 시트·통계연보에 취약인구를 넣으면 반영')); })
+      .catch(function(e){ log('⚠ 집계구 인구 자동 불러오기 실패 — ' + e.message + ' (SGIS 서비스ID·보안키 확인)'); });
+  });
+  return chain;
+}
 function hasPrice(){ return XITEMS.some(function(x){ return PRICE[x[0]] > 0; }); }
 // 측점 문자열 → m : 'No.6+20'은 1No.=50m, '3+139'처럼 + 뒤가 세 자리면 km
 function stM(s){ s = String(s || ''); var m = /(No\.?\s*)?(\d+)\s*\+\s*(\d+(?:\.\d+)?)/i.exec(s); if (!m) { var n = /No\.?\s*(\d+)/i.exec(s); return n ? +n[1] * 50 : null; }
@@ -656,7 +703,7 @@ $('bRun').onclick = function(){
   (inp ? inp.file.arrayBuffer().then(function(b){ P = readInput(b, inp.name); log('지구 ' + P.districts.length + '개 · 읍면동 ' + Object.keys(P.emds).length + '개 · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
   .then(tick).then(function(){
     prog(15, 'GIS 처리(하도버퍼링·구획 집계) 중…');
-    return tick().then(function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } });
+    return tick().then(function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } }).then(autoInventory);
   }).then(function(){
     if (!P.gis || !P.gis.length) throw new Error('침수면적이 없습니다. 측선·수치지도·지구계·토지피복을 함께 올리거나 엑셀 GIS면적 시트를 넣어 주세요.');
     prog(75, '피해액·편익·경제성 계산'); return tick();
