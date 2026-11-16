@@ -452,7 +452,7 @@ function autoInventory(){
     log('브이월드 건축물정보에서 지구 범위 건물을 불러오는 중…');
     return AUTOINV.buildings({box:box, tf:to4326, back:from4326, key:apiv('vkey'), domain:API.vdomain || (/^https?:/.test(location.origin) ? location.origin : API_DEF.vdomain), centroid:KFRM.centroid, prog:function(s){ $('prog').firstChild.title = s; }})
       .then(function(feats){ var B = KFRM.buildings(feats, CUR.defStr); KINV.buildings = KINV.buildings.concat(B.list);
-        log('브이월드 건물 ' + B.list.length.toLocaleString() + '동 불러옴' + (B.skip ? ' (용도·면적 없음 ' + B.skip + '동 제외)' : '')); })
+        var st = feats.stats || {}; log('브이월드 건물 ' + B.list.length.toLocaleString() + '동 불러옴 — 건축물대장 용도 ' + (st.reg || 0) + '동, 도로명주소 건물 설명으로 용도 판정 ' + (st.desc || 0) + '동' + (st.none ? ', 주소·대장 정보 없는 부속건물 등 ' + st.none + '동 제외(K-CDMS와 같은 기준)' : '') + (B.skip ? ', 면적 없음 ' + B.skip + '동 제외' : '')); })
       .catch(function(e){ log('⚠ 건물 자동 불러오기 실패 — ' + e.message + ' (인증키·등록 URL 확인, 또는 건물 SHP를 직접 넣기)'); });
   });
   if (needP) chain = chain.then(function(){
