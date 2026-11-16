@@ -221,7 +221,16 @@ var REPORT = (function () {
     var nLevee = P.districts.filter(function (d) { return d.lenLevee > 0; }).length, nReinf = P.districts.length - nLevee;
     var design = res.map(function (r) { var e = r.econ[r.district.designT]; return e ? e.BC : null; }).filter(function (v) { return v !== null; });
     var nOK = design.filter(function (v) { return v >= 1; }).length, nNG = design.length - nOK;
-    xml = xml.replace(/<hp:t>([^<]*)<\/hp:t>/g, function (m, s) {
+    // 결론 문장(양식에서 형광펜 칠한 부분): 분석한 하천·지구·B/C로 새로 씀
+    var okN = [], ngN = [];
+    res.forEach(function (r) { var e = r.econ[r.district.designT]; if (!e) return; (e.BC >= 1 ? okN : ngN).push(r.district.name); });
+    var nm = function (a) { return a.length && a.length <= 10 ? '(' + a.join(', ') + ')' : ''; }, rv = river || '본 하천', all = okN.length + ngN.length;
+    var concl = !all ? rv + '의 분석지구에 대하여 치수경제성을 검토하였다.'
+      : !ngN.length ? rv + '의 분석지구 ' + all + '개소에 대하여 치수경제성을 검토한 결과 모든 지구' + nm(okN) + '의 B/C가 1보다 크게 산정되어 사업성이 있는 것으로 검토되었다.'
+      : !okN.length ? rv + '의 분석지구 ' + all + '개소에 대하여 치수경제성을 검토한 결과 모든 지구' + nm(ngN) + '의 B/C가 1보다 작게 산정되어 사업성이 부족한 것으로 검토되었다.'
+      : rv + '의 분석지구 ' + all + '개소에 대하여 치수경제성을 검토한 결과 B/C가 1보다 크게 산정된 지구 ' + okN.length + '개소' + nm(okN) + ', B/C가 1보다 작게 산정된 ' + ngN.length + '개 지구' + nm(ngN) + '는 사업성이 부족한 것으로 검토되었다.';
+    xml = xml.replace(/<hp:markpenBegin[^>]*\/>([^<]*분석지구에 대하여[^<]*)<hp:markpenEnd\/>/, function () { return esc(concl); });
+    xml = xml.replace(/<hp:t>((?:[^<]|<hp:markpen(?:Begin|End)[^>]*\/>)*)<\/hp:t>/g, function (m, s) {
       s = s.replace(/축제지구\s*\d+개지구/, '축제지구 ' + nLevee + '개지구').replace(/보축지구\s*\d+개지구로\s*총\s*\d+개/, '보축지구 ' + nReinf + '개지구로 총 ' + P.districts.length + '개')
            .replace(/B\/C가 1보다 크게 산정된 지구\s*\d+개소/, 'B/C가 1보다 크게 산정된 지구 ' + nOK + '개소').replace(/B\/C가 1보다 작게 산정된\s*\d+개 지구/, 'B/C가 1보다 작게 산정된 ' + nNG + '개 지구')
            .replace(/초기\(30년\)\s*[\d.]+%,\s*이후\(20년\)\s*[\d.]+%/, '초기(' + st.r1Years + '년) ' + st.r1 + '%, 이후(' + (st.period - st.r1Years) + '년) ' + st.r2 + '%');

@@ -1232,6 +1232,239 @@ if (typeof module !== 'undefined') module.exports = QE;
 
 </script>
 <script>
+/* 위성 위치도 — 종합 위치도 1장 + 지구별 위치도 (A4 세로, 300dpi PNG)
+ *  배경: 브이월드 위성(+하이브리드 지명) → 실패하면 Esri World Imagery
+ *  M = {crs, dist:[{d, rings}], river:[[x,y]...], stations:[{p:[x,y], key}], basin:[ring...]}  (좌표 = 분석 좌표계)
+ *  info = {title:[시도, 시군구, 읍면동], rows:[{name, len, cost, bc, score, rank, T, section}], taskLen, riverLen}
+ */
+var LOCMAP = (function () {
+  var RE = 6378137, W = 2480, H = 3508, FONT = "'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
+  function merc(ll) { return [RE * ll[0] * Math.PI / 180, RE * Math.log(Math.tan(Math.PI / 4 + ll[1] * Math.PI / 360))]; }
+  function img(url) { return new Promise(function (ok) { var im = new Image(); im.crossOrigin = 'anonymous'; var t = setTimeout(function () { ok(null); }, 20000); im.onload = function () { clearTimeout(t); ok(im); }; im.onerror = function () { clearTimeout(t); ok(null); }; im.src = url; }); }
+  function url(src, z, x, y, key) {
+    if (src === 'vsat') return 'https://api.vworld.kr/req/wmts/1.0.0/' + key + '/Satellite/' + z + '/' + y + '/' + x + '.jpeg';
+    if (src === 'vhyb') return 'https://api.vworld.kr/req/wmts/1.0.0/' + key + '/Hybrid/' + z + '/' + y + '/' + x + '.png';
+    return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/' + z + '/' + y + '/' + x;
+  }
+  // 메르카토르 범위 mb=[x0,y0,x1,y1]를 rect=[px,py,w,h]에 그림
+  function tiles(ctx, rect, mb, src, key, zmax) {
+    var res = (mb[2] - mb[0]) / rect[2], z = Math.max(1, Math.min(zmax, Math.ceil(Math.log2(2 * Math.PI * RE / (256 * res)))));
+    var n = 256 * Math.pow(2, z), C = 2 * Math.PI * RE;
+    var wx = function (x) { return (x + Math.PI * RE) / C * n; }, wy = function (y) { return (Math.PI * RE - y) / C * n; };
+    var X0 = wx(mb[0]), X1 = wx(mb[2]), Y0 = wy(mb[3]), Y1 = wy(mb[1]), sx = rect[2] / (X1 - X0), sy = rect[3] / (Y1 - Y0);
+    var jobs = [], miss = 0, all = 0;
+    for (var tx = Math.floor(X0 / 256); tx <= Math.floor(X1 / 256); tx++) for (var ty = Math.floor(Y0 / 256); ty <= Math.floor(Y1 / 256); ty++) (function (tx, ty) {
+      all++;
+      jobs.push(img(url(src, z, tx, ty, key)).then(function (im) {
+        if (!im) { miss++; return; }
+        ctx.drawImage(im, rect[0] + (tx * 256 - X0) * sx, rect[1] + (ty * 256 - Y0) * sy, 256 * sx + 0.6, 256 * sy + 0.6);
+      }));
+    })(tx, ty);
+    return Promise.all(jobs).then(function () { return all ? miss / all : 1; });
+  }
+  function basemap(ctx, rect, mb, key, hybrid) {
+    ctx.save(); ctx.beginPath(); ctx.rect(rect[0], rect[1], rect[2], rect[3]); ctx.clip();
+    ctx.fillStyle = '#3a4a3a'; ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
+    var p = key ? tiles(ctx, rect, mb, 'vsat', key, 19) : Promise.resolve(1);
+    return p.then(function (miss) {
+      if (miss > 0.3) return tiles(ctx, rect, mb, 'esri', key, 19).then(function () { return 'Esri World Imagery'; });
+      return (hybrid ? tiles(ctx, rect, mb, 'vhyb', key, 19) : Promise.resolve()).then(function () { return '브이월드 위성영상'; });
+    }).then(function (s) { ctx.restore(); return s; });
+  }
+  function rr(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  function halo(ctx, t, x, y, size, color, bold, align) {
+    ctx.font = (bold ? 'bold ' : '') + size + 'px ' + FONT; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = size / 4; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineJoin = 'round'; ctx.strokeText(t, x, y); ctx.fillStyle = color; ctx.fillText(t, x, y);
+  }
+  function path(ctx, pts, close) { ctx.beginPath(); pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); if (close) ctx.closePath(); }
+  function f(v, d) { return v === null || v === undefined || !isFinite(v) ? '-' : (+v).toLocaleString('ko-KR', { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 }); }
+
+  // 분석 좌표 → 메르카토르
+  function prep(M) {
+    var t = CRS.transformer(M.crs, 'EPSG:4326'), m = function (p) { return merc(t(p)); };
+    return {
+      dist: M.dist.map(function (q) { return { d: q.d, rings: q.rings.map(function (r) { return r.map(m); }) }; }),
+      river: (M.river || []).map(m),
+      stations: (M.stations || []).map(function (s) { return { p: m(s.p), key: s.key }; }),
+      basin: (M.basin || []).map(function (r) { return r.map(m); }),
+      ll: function (p) { return t(p); }
+    };
+  }
+  function bboxOf(pts) { var b = [Infinity, Infinity, -Infinity, -Infinity]; pts.forEach(function (p) { if (p[0] < b[0]) b[0] = p[0]; if (p[1] < b[1]) b[1] = p[1]; if (p[0] > b[2]) b[2] = p[0]; if (p[1] > b[3]) b[3] = p[1]; }); return b; }
+  function fit(b, rect, pad, minSpan) {
+    var cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, w = Math.max(b[2] - b[0], minSpan) * (1 + pad), h = Math.max(b[3] - b[1], minSpan) * (1 + pad), a = rect[2] / rect[3];
+    if (w / h > a) h = w / a; else w = h * a;
+    return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+  }
+
+  function render(M0, info, opt) {
+    opt = opt || {};
+    var M = prep(M0), focus = opt.focus || null, key = opt.key || '';
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    var rows = focus ? info.rows.filter(function (r) { return r.name === focus; }) : info.rows;
+    var rowH = rows.length > 14 ? 58 : 72, tblH = 90 + rowH * (rows.length + 1) + 30, mg = 70;
+    var rect = [mg, mg, W - 2 * mg, H - 2 * mg - tblH - 20];
+    // 범위: 지구(+하천) — 유역계는 너무 크지 않을 때만
+    var dp = []; M.dist.forEach(function (q) { if (!focus || q.d === focus) q.rings.forEach(function (r) { dp = dp.concat(r); }); });
+    if (!focus) dp = dp.concat(M.river);
+    if (!dp.length) dp = M.river.slice();
+    var b = bboxOf(dp);
+    if (!focus && M.basin.length) { var bb = bboxOf([].concat.apply([], M.basin)); if ((bb[2] - bb[0]) * (bb[3] - bb[1]) < 5 * (b[2] - b[0]) * (b[3] - b[1])) b = [Math.min(b[0], bb[0]), Math.min(b[1], bb[1]), Math.max(b[2], bb[2]), Math.max(b[3], bb[3])]; }
+    var mb = fit(b, rect, focus ? 0.9 : 0.35, focus ? 500 : 800);
+    var sx = rect[2] / (mb[2] - mb[0]), P = function (p) { return [rect[0] + (p[0] - mb[0]) * sx, rect[1] + (mb[3] - p[1]) * sx]; };
+    // 메르카토르 축척 → 실제 거리(위도 보정)
+    var lat = M.ll ? null : null, cy = (mb[1] + mb[3]) / 2, k = Math.cos(2 * Math.atan(Math.exp(cy / RE)) - Math.PI / 2);
+    return basemap(ctx, rect, mb, key, true).then(function (srcName) {
+      ctx.save(); ctx.beginPath(); ctx.rect(rect[0], rect[1], rect[2], rect[3]); ctx.clip();
+      // 유역경계
+      M.basin.forEach(function (r) {
+        var pts = r.map(P);
+        ctx.setLineDash([]); ctx.lineWidth = 14; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; path(ctx, pts, true); ctx.stroke();
+        ctx.setLineDash([46, 16, 10, 16]); ctx.lineWidth = 8; ctx.strokeStyle = '#111'; path(ctx, pts, true); ctx.stroke(); ctx.setLineDash([]);
+      });
+      // 분석지구
+      M.dist.forEach(function (q) {
+        var on = !focus || q.d === focus;
+        q.rings.forEach(function (r) {
+          var pts = r.map(P);
+          ctx.fillStyle = on ? 'rgba(90,230,90,0.48)' : 'rgba(90,230,90,0.18)'; path(ctx, pts, true); ctx.fill();
+          ctx.lineWidth = on && focus ? 8 : 4; ctx.strokeStyle = on && focus ? '#ff2a2a' : '#1f8f2a'; path(ctx, pts, true); ctx.stroke();
+        });
+      });
+      // 과업하천
+      if (M.river.length > 1) {
+        var rp = M.river.map(P);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.lineWidth = 22; ctx.strokeStyle = 'rgba(255,255,255,0.8)'; path(ctx, rp); ctx.stroke();
+        ctx.lineWidth = 14; ctx.strokeStyle = '#2140e8'; path(ctx, rp); ctx.stroke();
+      }
+      // 측점
+      var stp = M.stations.map(function (s) { return { p: P(s.p), key: s.key }; }).filter(function (s) { return s.p[0] > rect[0] && s.p[0] < rect[0] + rect[2] && s.p[1] > rect[1] && s.p[1] < rect[1] + rect[3]; });
+      var every = Math.max(1, Math.ceil(stp.length / (focus ? 6 : 10)));
+      stp.forEach(function (s, i) { if (i % every) return; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s.p[0], s.p[1], 9, 0, 7); ctx.fill(); halo(ctx, 'NO.' + s.key, s.p[0] + 18, s.p[1] - 22, 30, '#ffffff', false, 'left'); });
+      // 지구 이름표
+      var boxes = [], cen = function (rings) { var p = bboxOf([].concat.apply([], rings)); return [(p[0] + p[2]) / 2, (p[1] + p[3]) / 2]; };
+      var riverC = M.river.length ? cen([M.river]) : null;
+      M.dist.reduce(function (acc, q) { var a = acc.filter(function (x) { return x.d === q.d; })[0]; if (a) a.rings = a.rings.concat(q.rings); else acc.push({ d: q.d, rings: q.rings.slice() }); return acc; }, []).forEach(function (q) {
+        if (focus && q.d !== focus) return;
+        var row = info.rows.filter(function (r) { return r.name === q.d; })[0] || {};
+        var c = P(cen(q.rings)), rc = riverC ? P(riverC) : [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
+        var dx = c[0] - rc[0], dy = c[1] - rc[1], L = Math.hypot(dx, dy) || 1;
+        var off = focus ? 320 : 230, bx = c[0] + dx / L * off, by = c[1] + dy / L * off;
+        var l1 = q.d, l2 = row.section ? 'NO.' + String(row.section).replace(/^NO\.?\s*/i, '') : '';
+        ctx.font = 'bold 40px ' + FONT; var w = Math.max(ctx.measureText(l1).width, (ctx.font = '34px ' + FONT, ctx.measureText(l2).width)) + 44, h = l2 ? 112 : 66;
+        bx = Math.min(Math.max(bx - w / 2, rect[0] + 20), rect[0] + rect[2] - w - 20); by = Math.min(Math.max(by - h / 2, rect[1] + 20), rect[1] + rect[3] - h - 20);
+        for (var it = 0; it < 30 && boxes.some(function (o) { return bx < o[0] + o[2] + 10 && o[0] < bx + w + 10 && by < o[1] + o[3] + 10 && o[1] < by + h + 10; }); it++) by += h * 0.6 * (it % 2 ? -it : it);
+        boxes.push([bx, by, w, h]);
+        ctx.strokeStyle = '#ff2a2a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(bx + w / 2, by + h / 2); ctx.stroke();
+        ctx.fillStyle = '#ff2a2a'; ctx.beginPath(); ctx.arc(c[0], c[1], 10, 0, 7); ctx.fill();
+        rr(ctx, bx, by, w, h, 12); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = '#ff2a2a'; ctx.stroke();
+        ctx.fillStyle = '#c40000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 40px ' + FONT; ctx.fillText(l1, bx + w / 2, by + (l2 ? 34 : h / 2));
+        if (l2) { ctx.font = '34px ' + FONT; ctx.fillStyle = '#222'; ctx.fillText(l2, bx + w / 2, by + 80); }
+      });
+      // 과업연장·하천연장 치수선 (종합도)
+      if (!focus && M.river.length > 1) {
+        var rp2 = M.river.map(P), yb = bboxOf(rp2), xr = Math.min(yb[2] + 170, rect[0] + rect[2] - 330);
+        // 아래쪽 범례(오른쪽 끝 폭 ~600)·축척(그 왼쪽 ~600)과 겹치면 하천 왼쪽에
+        var RB = rect[0] + rect[2], BT = rect[1] + rect[3], clash = function (x) { return (x > RB - 640 && yb[3] > BT - 380) || (x > RB - 1240 && x <= RB - 640 && yb[3] > BT - 230); };
+        if (clash(xr)) xr = Math.max(yb[0] - 170, rect[0] + 200);
+        var dim = function (x, y0, y1, color, label) {
+          ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 6;
+          ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+          [[y0, 1], [y1, -1]].forEach(function (a) { ctx.beginPath(); ctx.moveTo(x, a[0]); ctx.lineTo(x - 18, a[0] + 34 * a[1]); ctx.lineTo(x + 18, a[0] + 34 * a[1]); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(x - 50, a[0]); ctx.lineTo(x + 50, a[0]); ctx.stroke(); });
+          var lines = label.split('\n'); ctx.font = 'bold 42px ' + FONT; var w = Math.max.apply(null, lines.map(function (s) { return ctx.measureText(s).width; })) + 50, h = 64 * lines.length + 20, by = (y0 + y1) / 2 - h / 2;
+          rr(ctx, x - w / 2, by, w, h, 10); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 6; ctx.stroke();
+          ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; lines.forEach(function (s, i) { ctx.fillText(s, x, by + 42 + i * 64); });
+        };
+        if (info.taskLen) dim(xr, yb[1], yb[3], '#1d2bd8', '과업연장\nL=' + info.taskLen + 'km');
+        if (info.riverLen) dim(Math.min(xr + 300, rect[0] + rect[2] - 150), Math.max(rect[1] + 60, yb[1] - 120), Math.min(rect[1] + rect[3] - 60, yb[3] + 120), '#e01010', '하천연장\nL=' + info.riverLen + 'km');
+      }
+      ctx.restore();
+      // 제목(행정구역)
+      var SIDO = {'서울':'서울특별시','부산':'부산광역시','대구':'대구광역시','인천':'인천광역시','광주':'광주광역시','대전':'대전광역시','울산':'울산광역시','세종':'세종특별자치시','경기':'경기도','강원':'강원특별자치도','충북':'충청북도','충남':'충청남도','전북':'전북특별자치도','전남':'전라남도','경북':'경상북도','경남':'경상남도','제주':'제주특별자치도'};
+      var tl = (info.title || []).filter(Boolean).map(function (s, i) { return i === 0 && SIDO[s] ? SIDO[s] : s; }); if (focus) tl = tl.concat([focus]);
+      var ty0 = rect[1] + 40;
+      tl.forEach(function (s, i) {
+        var size = i === tl.length - 1 && tl.length > 1 ? 58 : 78; ctx.font = 'bold ' + size + 'px ' + FONT;
+        var sp = s.split('').join(' '), w = ctx.measureText(sp).width + 60, h = size + 40, x = rect[0] + rect[2] / 2 - w / 2, y = ty0; ty0 += h + 18;
+        rr(ctx, x, y, w, h, 14); ctx.fillStyle = i === tl.length - 1 && tl.length > 1 ? '#18a058' : '#f08a1c'; ctx.fill(); ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(sp, x + w / 2, y + h / 2 + 2);
+      });
+      // 방위표
+      var nx = rect[0] + rect[2] - 140, ny = rect[1] + 150;
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(nx, ny, 95, 0, 7); ctx.fill();
+      ctx.fillStyle = '#c40000'; ctx.beginPath(); ctx.moveTo(nx, ny - 80); ctx.lineTo(nx + 30, ny + 10); ctx.lineTo(nx, ny - 5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#222'; ctx.beginPath(); ctx.moveTo(nx, ny - 80); ctx.lineTo(nx - 30, ny + 10); ctx.lineTo(nx, ny - 5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#222'; ctx.font = 'bold 44px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('N', nx, ny + 50);
+      // 축척 + 범례 (오른쪽 아래)
+      var mpp = 1 / sx * k, target = 0.28 * rect[2] * mpp, nice = [50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000].filter(function (v) { return v <= target; }).pop() || 50;
+      var sw = nice / mpp, lgW = 560, lgX = rect[0] + rect[2] - lgW - 30, scW = Math.max(sw + 120, 520), scX = lgX - scW - 24;   // 축척은 범례 왼쪽에 나란히
+      var items = [['line', '#2140e8', '과업하천']];
+      if (M.basin.length) items.push(['dash', '#111', '유역경계']);
+      items.push(['fill', 'rgba(90,230,90,0.6)', '분석지구']);
+      var lgH = 90 + items.length * 70, lgY = rect[1] + rect[3] - lgH - 30, scY = rect[1] + rect[3] - 160 - 30;
+      rr(ctx, scX, scY, scW, 160, 10); ctx.fillStyle = 'rgba(255,255,255,0.93)'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#333'; ctx.stroke();
+      ctx.fillStyle = '#222'; ctx.font = 'bold 38px ' + FONT; ctx.textAlign = 'center'; ctx.fillText('축  척', scX + scW / 2, scY + 38);
+      var s0 = scX + (scW - sw) / 2;
+      [0, 1].forEach(function (i) { ctx.fillStyle = i ? '#fff' : '#222'; ctx.fillRect(s0 + i * sw / 2, scY + 80, sw / 2, 22); }); ctx.strokeStyle = '#222'; ctx.lineWidth = 3; ctx.strokeRect(s0, scY + 80, sw, 22);
+      ctx.font = '30px ' + FONT; ctx.fillStyle = '#222';
+      [[0, '0m'], [0.5, (nice / 2 >= 1000 ? (nice / 2000) + 'km' : (nice / 2) + 'm')], [1, nice >= 1000 ? (nice / 1000) + 'km' : nice + 'm']].forEach(function (a) { ctx.fillText(a[1], s0 + sw * a[0], scY + 130); });
+      rr(ctx, lgX, lgY, lgW, lgH, 10); ctx.fillStyle = 'rgba(255,255,255,0.93)'; ctx.fill(); ctx.strokeStyle = '#333'; ctx.stroke();
+      ctx.fillStyle = '#222'; ctx.font = 'bold 38px ' + FONT; ctx.fillText('범  례', lgX + lgW / 2, lgY + 42);
+      items.forEach(function (it, i) {
+        var y = lgY + 110 + i * 70, x = lgX + 50;
+        ctx.save();
+        if (it[0] === 'fill') { ctx.fillStyle = it[1]; ctx.fillRect(x, y - 20, 150, 40); ctx.strokeStyle = '#1f8f2a'; ctx.lineWidth = 3; ctx.strokeRect(x, y - 20, 150, 40); }
+        else { ctx.strokeStyle = it[1]; ctx.lineWidth = it[0] === 'line' ? 14 : 8; if (it[0] === 'dash') ctx.setLineDash([30, 10, 6, 10]); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 150, y); ctx.stroke(); }
+        ctx.restore();
+        ctx.fillStyle = '#222'; ctx.font = '36px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(it[2], x + 190, y);
+      });
+      ctx.lineWidth = 6; ctx.strokeStyle = '#222'; ctx.strokeRect(rect[0], rect[1], rect[2], rect[3]);
+      ctx.fillStyle = '#555'; ctx.font = '24px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('배경: ' + srcName, rect[0] + 12, rect[1] + rect[3] - 8);
+      // KEY MAP
+      return keymap(ctx, [rect[0] + 30, rect[1] + 30, 520, 560], M, b, key);
+    }).then(function () {
+      // 표
+      var ty = rect[1] + rect[3] + 40, Ts = rows.map(function (r) { return r.T; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; });
+      ctx.fillStyle = '#111'; ctx.font = 'bold 40px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('계획빈도 : ' + (Ts.length === 1 ? Ts[0] + '년빈도' : Ts.map(function (t) { return t + '년'; }).join('·') + '빈도'), rect[0], ty + 20);
+      var cols = [['지구명', 0.24], ['계획연장\n(m)', 0.14], ['공사비\n(백만원)', 0.16], ['B/C', 0.14], ['통합\n지표', 0.14], ['투자우선\n순위', 0.18]];
+      var tw = rect[2], x0 = rect[0], y0 = ty + 60, hh = 90;
+      ctx.fillStyle = '#e9eef5'; ctx.fillRect(x0, y0, tw, hh);
+      var cx = x0; ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+      cols.forEach(function (c) {
+        var w = c[1] * tw; ctx.strokeRect(cx, y0, w, hh); ctx.fillStyle = '#111'; ctx.font = 'bold 32px ' + FONT; ctx.textAlign = 'center';
+        var ls = c[0].split('\n'); ls.forEach(function (s, i) { ctx.fillText(s, cx + w / 2, y0 + hh / 2 + (i - (ls.length - 1) / 2) * 36); }); cx += w;
+      });
+      rows.forEach(function (r, ri) {
+        var y = y0 + hh + ri * rowH, vals = [r.name, f(r.len), f(r.cost), r.bc === null || r.bc === undefined ? '-' : f(r.bc, r.bc < 10 ? 3 : 2), r.score === undefined || r.score === null ? '-' : (+r.score).toFixed(2), r.rank || '-'];
+        cx = x0; ctx.font = (rowH < 70 ? 30 : 34) + 'px ' + FONT;
+        cols.forEach(function (c, i) { var w = c[1] * tw; ctx.strokeRect(cx, y, w, rowH); ctx.fillStyle = i === 3 && r.bc >= 1 ? '#0a6b2a' : '#111'; ctx.fillText(String(vals[i]), cx + w / 2, y + rowH / 2); cx += w; });
+      });
+      ctx.lineWidth = 4; ctx.strokeRect(x0, y0, tw, hh + rows.length * rowH);
+      return cv;
+    });
+  }
+  function keymap(ctx, r, M, b, key) {
+    var c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], span = 260000, mb = [c[0] - span / 2 * r[2] / r[3], c[1] - span / 2, c[0] + span / 2 * r[2] / r[3], c[1] + span / 2];
+    var inner = [r[0] + 10, r[1] + 70, r[2] - 20, r[3] - 80], mb2 = fit([mb[0], mb[1], mb[2], mb[3]], inner, 0, 0);
+    rr(ctx, r[0], r[1], r[2], r[3], 10); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#222'; ctx.stroke();
+    ctx.fillStyle = '#111'; ctx.font = 'bold 40px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('KEY MAP', r[0] + r[2] / 2, r[1] + 38);
+    return basemap(ctx, inner, mb2, key, true).then(function () {
+      var s = inner[2] / (mb2[2] - mb2[0]), px = inner[0] + (c[0] - mb2[0]) * s, py = inner[1] + (mb2[3] - c[1]) * s;
+      ctx.save(); ctx.setLineDash([14, 8]); ctx.lineWidth = 6; ctx.strokeStyle = '#ff2020'; ctx.beginPath(); ctx.arc(px, py, 46, 0, 7); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = '#ff2020'; ctx.beginPath(); ctx.arc(px, py, 10, 0, 7); ctx.fill();
+      halo(ctx, '과업위치', px, py + 82, 36, '#ffe14d', true);
+      ctx.lineWidth = 3; ctx.strokeStyle = '#222'; ctx.strokeRect(inner[0], inner[1], inner[2], inner[3]);
+    });
+  }
+  return { render: render };
+})();
+
+</script>
+<script>
 /* 치수경제성 분석 엔진 — 다차원 홍수피해산정법(치수사업 경제성분석 방법 연구, 2004)
  * 입력: 지구·읍면동 기초자료, 빈도별 침수 GIS 집계(지구×침수심×토지피복), 공사비, 기준표, 설정
  * 출력: 지구×빈도별 자산가치·침수편입율·피해액·연평균피해경감기대액·B/C·NPV·IRR
@@ -1976,7 +2209,16 @@ var REPORT = (function () {
     var nLevee = P.districts.filter(function (d) { return d.lenLevee > 0; }).length, nReinf = P.districts.length - nLevee;
     var design = res.map(function (r) { var e = r.econ[r.district.designT]; return e ? e.BC : null; }).filter(function (v) { return v !== null; });
     var nOK = design.filter(function (v) { return v >= 1; }).length, nNG = design.length - nOK;
-    xml = xml.replace(/<hp:t>([^<]*)<\/hp:t>/g, function (m, s) {
+    // 결론 문장(양식에서 형광펜 칠한 부분): 분석한 하천·지구·B/C로 새로 씀
+    var okN = [], ngN = [];
+    res.forEach(function (r) { var e = r.econ[r.district.designT]; if (!e) return; (e.BC >= 1 ? okN : ngN).push(r.district.name); });
+    var nm = function (a) { return a.length && a.length <= 10 ? '(' + a.join(', ') + ')' : ''; }, rv = river || '본 하천', all = okN.length + ngN.length;
+    var concl = !all ? rv + '의 분석지구에 대하여 치수경제성을 검토하였다.'
+      : !ngN.length ? rv + '의 분석지구 ' + all + '개소에 대하여 치수경제성을 검토한 결과 모든 지구' + nm(okN) + '의 B/C가 1보다 크게 산정되어 사업성이 있는 것으로 검토되었다.'
+      : !okN.length ? rv + '의 분석지구 ' + all + '개소에 대하여 치수경제성을 검토한 결과 모든 지구' + nm(ngN) + '의 B/C가 1보다 작게 산정되어 사업성이 부족한 것으로 검토되었다.'
+      : rv + '의 분석지구 ' + all + '개소에 대하여 치수경제성을 검토한 결과 B/C가 1보다 크게 산정된 지구 ' + okN.length + '개소' + nm(okN) + ', B/C가 1보다 작게 산정된 ' + ngN.length + '개 지구' + nm(ngN) + '는 사업성이 부족한 것으로 검토되었다.';
+    xml = xml.replace(/<hp:markpenBegin[^>]*\/>([^<]*분석지구에 대하여[^<]*)<hp:markpenEnd\/>/, function () { return esc(concl); });
+    xml = xml.replace(/<hp:t>((?:[^<]|<hp:markpen(?:Begin|End)[^>]*\/>)*)<\/hp:t>/g, function (m, s) {
       s = s.replace(/축제지구\s*\d+개지구/, '축제지구 ' + nLevee + '개지구').replace(/보축지구\s*\d+개지구로\s*총\s*\d+개/, '보축지구 ' + nReinf + '개지구로 총 ' + P.districts.length + '개')
            .replace(/B\/C가 1보다 크게 산정된 지구\s*\d+개소/, 'B/C가 1보다 크게 산정된 지구 ' + nOK + '개소').replace(/B\/C가 1보다 작게 산정된\s*\d+개 지구/, 'B/C가 1보다 작게 산정된 ' + nNG + '개 지구')
            .replace(/초기\(30년\)\s*[\d.]+%,\s*이후\(20년\)\s*[\d.]+%/, '초기(' + st.r1Years + '년) ' + st.r1 + '%, 이후(' + (st.period - st.r1Years) + '년) ' + st.r2 + '%');
@@ -2167,6 +2409,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
       <button class="primary" id="bHwp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg><span><b>치수경제성 보고서</b><small>경제성 분석 · 투자우선순위 (.hwpx)</small></span></button>
       <button id="bXls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg><span><b>결과 엑셀</b><small>요약·피해액·편익·경제성·우선순위·현금흐름</small></span></button>
       <button id="bGis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span><b>침수면적표</b><small>지구·빈도·침수심·토지피복별 면적</small></span></button>
+      <button id="bMap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.5-7-11a7 7 0 0114 0c0 4.5-7 11-7 11z"/></svg><span><b>위성 위치도</b><small>종합 위치도 + 지구별 위치도 (PNG 묶음)</small></span></button>
     </div>
     <div class="grid2">
       <div class="panel"><h3 id="mapTitle">침수심도</h3><canvas id="map" width="640" height="420"></canvas>
@@ -2192,7 +2435,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
 var $ = function(id){ return document.getElementById(id); };
 var IS_GAS = typeof google !== 'undefined' && google.script && google.script.run;
 var SAMPLE = window.SAMPLE_DATA;
-var FILES = [], P = null, OUT = null, AHP = null, TPL = null, PREVIEW = null, KGRID = null, KINV = null, KTARGET = null, KDBOX = null;
+var FILES = [], P = null, OUT = null, AHP = null, TPL = null, PREVIEW = null, KGRID = null, KINV = null, KTARGET = null, KDBOX = null, KMAP = null;
 function log(s){ $('log').textContent += s + '\n'; }
 function prog(p, s){ $('prog').style.display = 'block'; $('prog').firstChild.style.width = p + '%'; if (s) log(s); }
 function tick(){ return new Promise(function(r){ setTimeout(r, 20); }); }
@@ -2205,12 +2448,13 @@ var SET = [
   ['cityTypeGoods','도시유형(가정용품)','city'],['cityTypeLife','도시유형(인명·이재민)','city'],['industrySido','산업자산 시도','sido'],['priceYear','가격기준년도','n'],
   ['pfdCode','PFD 단위구역 코드','s'],['pfdArea','PFD 단위구역명','s'],['pfdGrade','PFD 등급','s'],['pfdValue','PFD 값','n'],
   ['ecoGrade','생태자연도 등급','s'],['lagRank','지역낙후도 순위','n'],['lagTotal','지역낙후도 대상 시군 수','n'],
+  ['taskLen','과업연장(km) — 비우면 측선으로 자동','s'],['riverLen','하천연장(km) — 위치도 표기용','s'],
   ['cell','침수심 격자 크기(m)','n'],['dxfCrs','DXF 좌표계','crs'],
   ['includeSubsidiary','부대공 비용 포함','b'],['lifeAnnualize','인명피해 연평균화','b'],['contentsTriple','건물내용물 3중 합산','b'],['discountMode','할인 방식','dm']
 ];
 var GUIDE = {Ts:[20,30,50,80,100,200], r1:4.5, r1Years:30, r2:3.5, period:50, buildYears:1, growth:0, omRate:2, benefitRatio:1,
   priceYear:2024, lifeCpiYear:2024, gniYear:2024, cityTypeGoods:'농촌지역', cityTypeLife:'농촌지역', industrySido:'전북',
-  pfdCode:'', pfdArea:'', pfdGrade:'', pfdValue:0, ecoGrade:'3', lagRank:0, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto',
+  pfdCode:'', pfdArea:'', pfdGrade:'', pfdValue:0, ecoGrade:'3', lagRank:0, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto', taskLen:'', riverLen:'',
   method:'kfrm', duration:0, defStr:'조적조', discountMode:'chain', includeSubsidiary:true, lifeAnnualize:true, contentsTriple:false, residual:{축제공:0.8, 호안공:0.1, 구조물공:0, 보상비:1}};
 var V9 = Object.assign({}, GUIDE, {r1:5.5, r2:4.5, growth:3, cityTypeLife:'전원도시', industrySido:'전남', pfdCode:'3302', pfdArea:'정읍시',
   method:'mdfda', discountMode:'v9', includeSubsidiary:false, lifeAnnualize:false, contentsTriple:true});
@@ -2564,7 +2808,8 @@ function autoCover(K){
   var feats = {}, n = 0, layer = null;
   var one = function(L, t){
     var u = 'https://api.mcee.go.kr/geoserver/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=' + L + '&maxFeatures=30000&srsName=EPSG:4326&outputFormat=application/json&bbox=' + t.map(function(v){ return v.toFixed(6); }).join(',') + ',EPSG:4326';
-    return AUTOINV.jsonp(px + (px.indexOf('?') >= 0 ? '&' : '?') + 'u=' + encodeURIComponent(u), 90000).then(function(d){
+    var q = px + (px.indexOf('?') >= 0 ? '&' : '?') + 'u=' + encodeURIComponent(u), get = function(){ return fetch(q).then(function(r){ return r.json(); }).catch(function(){ return AUTOINV.jsonp(q, 90000); }); };
+    return get().catch(function(){ return new Promise(function(ok){ setTimeout(ok, 1500); }).then(get); }).then(function(d){
       if (!d || d.error) throw new Error(d && d.error || '응답 없음');
       (d.features || []).forEach(function(f){ if (!feats[f.id]) { feats[f.id] = f; n++; } });
     });
@@ -2841,6 +3086,28 @@ function buildGis(){
       if (bare.length) log((Fc ? '⚠ 토지피복도가 덮지 않는 지구 ' : '토지피복도 없음 — 지구계만 사용: ') + bare.map(function(d){ return d.properties.d; }).filter(function(n, i, arr){ return arr.indexOf(n) === i; }).join(', ') + (CUR.method === 'kfrm' ? ' (K-FRM은 건물·인구 인벤토리로 계산)' : ' (다차원법은 토지피복이 있어야 주거·농업·산업 피해가 나옵니다)'));
     }
   }
+  // 위치도용 형상(지구·하천 중심선·측점·유역계) 기억
+  try {
+    var mdist = [];
+    if (D && !Fz) D.forEach(function(x){ if (x.properties.d) mdist.push({d:x.properties.d, rings:x.geometry.coordinates}); });
+    else zones.forEach(function(z){ mdist.push({d:z.district, rings:z.rings}); });
+    var mriv = [], mst = [];
+    if (secs && secs.length) {
+      var sbx = CRS.bboxOf([].concat.apply([], secs.map(function(q){ return q.coords; })));
+      var mdem = contours && contours.length ? GISR.demSampler(contours, points || [], sbx, {}) : null;
+      secs.filter(function(q){ return q.station; }).map(function(q){
+        var c = q.coords, best = null, bz = Infinity, L = 0, seg = [];
+        for (var i = 1; i < c.length; i++) { var l = Math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]); seg.push(l); L += l; }
+        var at = function(t){ var r = t * L; for (var j = 0; j < seg.length; j++) { if (r <= seg[j] || j === seg.length - 1) { var f = seg[j] ? Math.min(1, r / seg[j]) : 0; return [c[j][0] + f * (c[j + 1][0] - c[j][0]), c[j][1] + f * (c[j + 1][1] - c[j][1])]; } r -= seg[j]; } return c[0]; };
+        if (mdem && c.length > 1) for (var k = 0; k <= 40; k++) { var p = at(k / 40), z = mdem.at(p[0], p[1]); if (isFinite(z) && z < bz) { bz = z; best = p; } }
+        var m = /(\d+)\s*\+\s*(\d+(?:\.\d+)?)/.exec(q.station);
+        return {k:m ? +m[1] * 100000 + +m[2] : 0, p:best || (c.length > 1 ? at(0.5) : c[0]), key:q.station};
+      }).sort(function(a, b){ return a.k - b.k; }).forEach(function(x){ mriv.push(x.p); mst.push({p:x.p, key:x.key}); });
+    }
+    var mbas = bas || [];
+    if (!mbas.length && Fb && Fb.fc) { var tb2 = CRS.transformer(Fb.crs || target, target); mbas = IO.polyRings(Fb.fc).map(function(z){ return mapCoords(z.rings[0], tb2); }); }
+    KMAP = {crs:target, dist:mdist, river:mriv, stations:mst, basin:mbas};
+  } catch (e) { KMAP = null; console.warn(e); }
   // 2) 하도버퍼링
   if (Fs && Ft && zones.length && contours) {
     var cell = +CUR.cell || 1, areaSum = zones.reduce(function(s, z){ return s + Math.abs(turf.area ? polyArea(z.rings[0]) : 0); }, 0);
@@ -3116,6 +3383,26 @@ $('bGis').onclick = function(){
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['빈도(년)','지구명','침수심','토지피복','면적(㎡)']].concat(P.gis.map(function(g){ return [g.T, g.district, g.depth, g.cover || g.cls, g.area]; }))), 'GIS면적');
   saveWb(wb, '침수면적_' + ((P.districts[0] || {}).river || '') + '.xlsx');
+};
+$('bMap').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
+  if (!KMAP || !KMAP.dist.length) { log('위성 위치도: 지구 형상이 없습니다. 측선·수치지도(+지구계 또는 유역계)를 넣고 분석해야 그릴 수 있습니다.'); return; }
+  var b = this; b.disabled = true;
+  var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
+  var rows = res.map(function(r){ var x = designOf(r), e = x.e, a = rk[r.district.name] || {}, d = r.district;
+    return {name:d.name, len:(d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0), cost:e ? e.total : null, bc:e ? e.BC : null, score:a.score, rank:a.rank, T:x.T, section:d.section}; });
+  var d0 = P.districts[0] || {}, emds = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
+  var rl = 0; for (var i = 1; i < KMAP.river.length; i++) rl += Math.hypot(KMAP.river[i][0] - KMAP.river[i - 1][0], KMAP.river[i][1] - KMAP.river[i - 1][1]);
+  var info = {title:[d0.sido, d0.sigungu, emds.join('·')], rows:rows, taskLen:String(CUR.taskLen || '').trim() || (rl ? (rl / 1000).toFixed(2) : ''), riverLen:String(CUR.riverLen || '').trim()};
+  var z = new JSZip(), river = d0.river || '', names = rows.map(function(r){ return r.name; }), k = 0;
+  var png = function(cv){ return new Promise(function(ok){ cv.toBlob(ok, 'image/png'); }); };
+  log('위성 위치도 그리는 중… (종합 1장 + 지구별 ' + names.length + '장)');
+  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey')}).then(png).then(function(bl){ z.file('00_' + (river ? river + '_' : '') + '종합위치도.png', bl); });
+  names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n}); }).then(png).then(function(bl){ z.file(('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도.png', bl); k++; }); });
+  chain.then(function(){ return z.generateAsync({type:'blob'}); }).then(function(bl){
+    log('위성 위치도 ' + (k + 1) + '장 완료 (A4 세로 300dpi PNG) — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
+    return save(bl, (river ? river + '_' : '') + '위성위치도.zip');
+  }).catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
 };
 $('bXls').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
