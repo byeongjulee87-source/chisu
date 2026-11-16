@@ -824,8 +824,9 @@ function reproj(g, t){ var m = function(c){ return typeof c[0] === 'number' ? t(
 // ---------------- 실행 ----------------
 $('bRun').onclick = function(){
   $('bRun').disabled = true; $('log').textContent = ''; prog(3, '입력 확인');
+  OUT = null; AHP = null; PREVIEW = null; $('res').style.display = 'none';   // 이전 결과(예시 등)가 보고서로 나가지 않게
   var inp = FILES.find(function(f){ return f.role === 'input'; });
-  (inp ? inp.file.arrayBuffer().then(function(b){ P = readInput(b, inp.name); log('지구 ' + P.districts.length + '개 · 읍면동 ' + Object.keys(P.emds).length + '개 · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
+  (inp ? inp.file.arrayBuffer().then(function(b){ P = readInput(b, inp.name); var en = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, x){ return n && x.indexOf(n) === i; }); log('지구 ' + P.districts.length + '개 · 읍면동 ' + (en.map(function(n){ return n + (P.emds[n] ? '' : '(통계 없음)'); }).join(', ') || '없음') + ' · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (en.some(function(n){ return !P.emds[n]; })) log('  ※ 읍면동 시트에 통계 줄이 없습니다. K-FRM은 건물·인구를 자동으로 불러오므로 계산되지만, 취약인구 비율·다차원법에는 읍면동 통계(또는 KOSIS 표)가 필요합니다.'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
   .then(tick).then(function(){
     prog(15, 'GIS 처리(하도버퍼링·구획 집계) 중…');
     return tick().then(function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } }).then(autoInventory);
@@ -848,7 +849,7 @@ $('bRun').onclick = function(){
     if (noc.length) log('⚠ 공사비 없음(B/C 미산정): ' + noc.join(', '));
     econ(); prog(100, '완료 — 아래에서 보고서와 엑셀을 내려받으세요.');
     $('res').scrollIntoView({behavior:'smooth'});
-  }).catch(function(e){ log('오류: ' + e.message); console.error(e); }).then(function(){ $('bRun').disabled = false; });
+  }).catch(function(e){ OUT = null; $('res').style.display = 'none'; log('오류: ' + e.message); log('※ 계산이 끝나지 않아 보고서·엑셀을 만들 수 없습니다. 위 오류를 고친 뒤 다시 실행하세요.'); console.error(e); }).then(function(){ $('bRun').disabled = false; });
 };
 $('bSample').onclick = function(){
   P = JSON.parse(JSON.stringify(SAMPLE)); P.wse = {}; form(SAMPLE.v9 ? V9 : Object.assign({}, GUIDE, {method:'mdfda'})); FILES = []; PREVIEW = null; KGRID = null; KINV = null; show();
@@ -974,16 +975,19 @@ function template(){
   return Promise.reject(new Error('보고서 양식(.hwpx)이 없습니다. 양식 파일을 함께 올려 주세요.'));
 }
 $('bHwp').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
   var b = this; b.disabled = true; log('보고서 만드는 중…');
   template().then(function(t){ return REPORT.make(t, P, OUT, P.settings); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
     .catch(function(e){ log('오류: ' + e.message); }).then(function(){ b.disabled = false; });
 };
 $('bGis').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['빈도(년)','지구명','침수심','토지피복','면적(㎡)']].concat(P.gis.map(function(g){ return [g.T, g.district, g.depth, g.cover || g.cls, g.area]; }))), 'GIS면적');
   saveWb(wb, '침수면적_' + ((P.districts[0] || {}).river || '') + '.xlsx');
 };
 $('bXls').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
   var wb = XLSX.utils.book_new(), Ts = OUT.Ts, add = function(n, a){ XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(a), n); };
   var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
   add('요약', [['지구명','안별','읍면동','계획빈도','침수면적(ha)','피해액','연평균편익','총사업비','편익현가B','비용현가C','B/C','NPV','IRR(%)','통합지표','투자우선순위']].concat(res.map(function(r){ var x = designOf(r), e = x.e || {}, a = rk[r.district.name] || {};

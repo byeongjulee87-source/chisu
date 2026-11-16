@@ -14,7 +14,7 @@ tpl = open(os.path.join(d, 'template.hwpx'), 'rb').read()
 tpljs = '<script>window.TPL_B64 = "' + base64.b64encode(tpl).decode() + '";</script>'
 # 공개용(깃허브): 과업 자료(지구·읍면동·공사비·GIS·기존 엑셀 결과)는 빼고 계산 기준표(tables)만 넣음
 # 공개용 예시: 과업 이름을 가상 이름으로 바꾸고(상두천→예시천, 정읍시→가상시, 산외면→가상면) 기존 엑셀 결과(v9)는 뺌
-_t = json.dumps({k: v for k, v in sample.items() if k not in ('tables', 'v9', 'project')}, ensure_ascii=False)
+_t = json.dumps({k: v for k, v in sample.items() if k not in ('tables', 'v9', 'project', 'synthetic')}, ensure_ascii=False)
 for _a, _b in (('상두천', '예시천'), ('정읍시', '가상시'), ('산외면', '가상면')): _t = _t.replace(_a, _b)
 pub = json.loads(_t); pub['tables'] = sample['tables']; pub['project'] = {'name': '예시천 치수경제성(예시)', 'river': '예시천'}
 # 예시 값도 실제 과업 값이 드러나지 않도록 항목마다 0.75~1.25배로 바꿈(같은 입력이면 늘 같은 값)
