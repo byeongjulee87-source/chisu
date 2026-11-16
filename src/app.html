@@ -85,6 +85,7 @@ table.t td.l,table.t th.l{text-align:left}
 .ok{color:var(--good);font-weight:700}.ng{color:var(--bad);font-weight:700}
 .tag{border-radius:99px;padding:2px 9px;font-size:11.5px;font-weight:600}.tag.ok{background:var(--goodbg)}.tag.ng{background:var(--badbg)}
 .price{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:10px 14px}.price summary{cursor:pointer;font-weight:600}
+.need details.more{margin-top:3px}.need details.more summary{cursor:pointer;color:var(--brand);font-weight:600;list-style:none}.need details.more summary::-webkit-details-marker{display:none}
 .warn{background:var(--warn);border-radius:10px;padding:9px 12px;font-size:12.5px;margin-top:10px}
 details summary{cursor:pointer;font-weight:700}
 .form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:4px 22px;margin-top:12px}
@@ -337,7 +338,7 @@ function show(){
   $('need').innerHTML = NEED.map(function(n){
     var ok = st[n[0]], opt = n[0] === 'template' || n[0] === 'kfrm' || n[0] === 'stats' || n[0] === 'xsec';
     var fs = FILES.filter(function(f){ return f.role === n[0] || (n[0] === 'zone' && /district|cover/.test(f.role)) || (n[0] === 'kfrm' && /building|vehicle|population|farmland/.test(f.role)); }).map(function(f){ return f.name; });
-    return '<div class="' + (ok ? 'ok' : opt ? 'opt' : '') + '"><span class="st">' + (ok ? '✓' : opt ? '+' : '') + '</span><span><b>' + n[1] + '</b><small>' + n[2] + '</small>' + (fs.length ? '<span class="file">' + fs.join(', ') + '</span>' : '') + '</span></div>';
+    return '<div class="' + (ok ? 'ok' : opt ? 'opt' : '') + '"><span class="st">' + (ok ? '✓' : opt ? '+' : '') + '</span><span><b>' + n[1] + '</b><small>' + n[2] + '</small>' + (fs.length ? '<span class="file">' + fs.slice(0, 2).join(', ') + (fs.length > 2 ? '<details class="more"><summary>외 ' + (fs.length - 2) + '개 더보기</summary>' + fs.slice(2).join(', ') + '</details>' : '') + '</span>' : '') + '</span></div>';
   }).join('');
   $('files').innerHTML = FILES.map(function(it, i){
     var role = it.role === 'pending' ? '<span class="chip">읽는 중…</span>' : '<select data-i="' + i + '">' + Object.keys(ROLES).map(function(r){ return '<option value="' + r + '"' + (r === it.role ? ' selected' : '') + '>' + ROLES[r] + '</option>'; }).join('') + '</select>';
@@ -530,7 +531,7 @@ function coverName(v){ var n = +v; return isFinite(n) && GIS.L2[n] ? GIS.L2[n] :
 function mapCoords(coords, f){ return coords.map(function(p){ return f(p); }); }
 function buildGis(){
   var Fz = FILES.find(function(f){ return f.role === 'zone'; }), Fd = FILES.find(function(f){ return f.role === 'district'; }), Fc = FILES.find(function(f){ return f.role === 'cover'; });
-  var Fs = FILES.find(function(f){ return f.role === 'section'; }), Ft = FILES.find(function(f){ return f.role === 'terrain'; });
+  var Fs = FILES.find(function(f){ return f.role === 'section'; }), Fts = FILES.filter(function(f){ return f.role === 'terrain' && f.dxf; }), Ft = Fts.length ? {dxf:{contours:[].concat.apply([], Fts.map(function(f){ return f.dxf.contours; })), points:[].concat.apply([], Fts.map(function(f){ return f.dxf.points; }))}} : null;
   var Ffl = FILES.filter(function(f){ return f.role === 'flood' && f.T; });
   var target = (Fz || Fd || {}).crs || (Fs && Fs.crs) || 'EPSG:5186'; KTARGET = target; KGRID = null; KINV = null;
   // 1) 구획(지구 × 토지피복)
@@ -542,7 +543,7 @@ function buildGis(){
     if (refIt && refIt.fc) { var trr = CRS.transformer(refIt.crs || target, target), rp = [];
       (refIt.fc.features || []).slice(0, 3000).forEach(function(x){ var g = x.geometry; if (!g) return; var c = g.type === 'Polygon' ? g.coordinates[0] : g.type === 'MultiPolygon' ? g.coordinates[0][0] : g.type === 'LineString' ? g.coordinates : g.type === 'MultiLineString' ? g.coordinates[0] : null; if (c) c.forEach(function(q){ rp.push(trr(q)); }); });
       if (rp.length) ref = CRS.bboxOf(rp); }
-    dcrs = CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : (ref ? CRS.guess(dpts, ref, target) : null) || target;
+    dcrs = CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : (ref ? CRS.guess(dpts, ref, target, [Fs && Fs.crs, Fc && Fc.crs, target]) : null) || target;
     log('지구 DXF: 지구 ' + Fd.fc.features.length + '개, 좌표계 ' + (CRS.LABEL[dcrs] || dcrs));
   }
   if (Fz || Fd) {
@@ -588,9 +589,10 @@ function buildGis(){
     }
     if (secs.length < 2) throw new Error('홍수위가 붙은 측선이 ' + secs.length + '개뿐입니다. 측선 SHP의 빈도별 홍수위 필드나 엑셀 "홍수위" 시트를 확인하세요.');
     var zb = CRS.bboxOf([].concat.apply([], zones.map(function(z){ return z.rings[0]; })));
-    var dxfCrs = function(sample){ return CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : CRS.guess(sample, zb, target); };
+    var dxfCrs = function(sample){ return CUR.dxfCrs && CUR.dxfCrs !== 'auto' ? CUR.dxfCrs : CRS.guess(sample, zb, target, [Fs && Fs.crs, (Fz || Fc || {}).crs, target]); };
     if (secs[0].raw) { var c0 = dxfCrs([].concat.apply([], secs.map(function(s){ return s.coords; })).slice(0, 2000)); log('측선 DXF 좌표계: ' + (CRS.LABEL[c0] || c0)); var t1 = CRS.transformer(c0, target); secs.forEach(function(s){ s.coords = mapCoords(s.coords, t1); }); }
-    var cpts = [].concat.apply([], Ft.dxf.contours.slice(0, 400).map(function(c){ return c.coords; }));
+    if (Fts.length > 1) log('수치지도 ' + Fts.length + '도엽을 합쳐 지형을 만듭니다.');
+    var cpts = [].concat.apply([], Ft.dxf.contours.filter(function(c, i){ return i % Math.max(1, Math.ceil(Ft.dxf.contours.length / 400)) === 0; }).map(function(c){ return c.coords; }));
     var ct = dxfCrs(cpts.length ? cpts : Ft.dxf.points.map(function(q){ return [q.x, q.y]; })); log('수치지도 좌표계: ' + (CRS.LABEL[ct] || ct));
     var tt = CRS.transformer(ct, target);
     var contours = Ft.dxf.contours.map(function(c){ return {coords:mapCoords(c.coords, tt), z:c.z}; });

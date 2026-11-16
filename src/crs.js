@@ -50,16 +50,22 @@ var CRS = (function () {
   }
   function overlap(a, b) { var w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), h = Math.min(a[3], b[3]) - Math.max(a[1], b[1]); return w > 0 && h > 0 ? w * h : 0; }
   // 좌표계 없는 자료(DXF)의 후보 중 기준 bbox(대상 좌표계)와 가장 많이 겹치는 것
-  function guess(samplePts, refBox, target) {
-    var best = null, bestA = 0;
+  // prefer: 거의 같은 점수(측지계만 다른 후보처럼 수백 m 차이)일 때 고를 순서 — 함께 넣은 SHP의 좌표계 등
+  function guess(samplePts, refBox, target, prefer) {
+    var sc = [];
     Object.keys(DEFS).forEach(function (c) {
       if (c === 'EPSG:4326') return;
       try {
-        var t = transformer(c, target), bb = bboxOf(samplePts.map(t));
-        var a = overlap(bb, refBox); if (a > bestA) { bestA = a; best = c; }
+        var t = transformer(c, target), bb = bboxOf(samplePts.map(t)), a = overlap(bb, refBox);
+        if (a > 0) sc.push({ c: c, a: a, f: a / Math.max(1e-9, (bb[2] - bb[0]) * (bb[3] - bb[1])) });
       } catch (e) {}
     });
-    return best;
+    if (!sc.length) return null;
+    var best = Math.max.apply(null, sc.map(function (s) { return s.a; })), near = sc.filter(function (s) { return s.a >= best * 0.97; });
+    var pf = (prefer || []).filter(Boolean);
+    for (var i = 0; i < pf.length; i++) { var hit = near.filter(function (s) { return s.c === pf[i]; })[0]; if (hit) return hit.c; }
+    near.sort(function (x, y) { return y.a - x.a; });
+    return near[0].c;
   }
   return { DEFS: DEFS, LABEL: LABEL, fromWkt: fromWkt, transformer: transformer, guess: guess, bboxOf: bboxOf };
 })();
