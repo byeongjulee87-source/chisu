@@ -267,11 +267,44 @@ var REPORT = (function () {
   }
 
   /* tplB64: 템플릿 hwpx(base64) → Blob */
-  function make(tplB64, P, O, st) {
+  // ---- 그림(위치도): 원래 양식의 그림 틀(1칸 표 + 자동번호 캡션 <그림 5.1-N>)을 그대로 써서 '1.2 치수사업의 편익산정' 앞에 넣음 ----
+  var FRAME = "<hp:p id=\"2147483648\" paraPrIDRef=\"41\" styleIDRef=\"0\" pageBreak=\"0\" columnBreak=\"0\" merged=\"0\"><hp:run charPrIDRef=\"42\"><hp:tbl id=\"1185330942\" zOrder=\"1\" numberingType=\"PICTURE\" textWrap=\"TOP_AND_BOTTOM\" textFlow=\"BOTH_SIDES\" lock=\"0\" dropcapstyle=\"None\" pageBreak=\"NONE\" repeatHeader=\"1\" rowCnt=\"1\" colCnt=\"1\" cellSpacing=\"0\" borderFillIDRef=\"3\" noAdjust=\"0\"><hp:sz width=\"47911\" widthRelTo=\"ABSOLUTE\" height=\"64065\" heightRelTo=\"ABSOLUTE\" protect=\"0\"/><hp:pos treatAsChar=\"1\" affectLSpacing=\"0\" flowWithText=\"1\" allowOverlap=\"0\" holdAnchorAndSO=\"0\" vertRelTo=\"PARA\" horzRelTo=\"PARA\" vertAlign=\"TOP\" horzAlign=\"LEFT\" vertOffset=\"0\" horzOffset=\"0\"/><hp:outMargin left=\"140\" right=\"140\" top=\"140\" bottom=\"140\"/><hp:caption side=\"BOTTOM\" fullSz=\"0\" width=\"8504\" gap=\"850\" lastWidth=\"47911\"><hp:subList id=\"\" textDirection=\"HORIZONTAL\" lineWrap=\"BREAK\" vertAlign=\"TOP\" linkListIDRef=\"0\" linkListNextIDRef=\"0\" textWidth=\"0\" textHeight=\"0\" hasTextRef=\"0\" hasNumRef=\"0\"><hp:p id=\"2147483648\" paraPrIDRef=\"53\" styleIDRef=\"11\" pageBreak=\"0\" columnBreak=\"0\" merged=\"0\"><hp:run charPrIDRef=\"23\"><hp:t><hp:markpenBegin color=\"#FFFF00\"/>&lt;그림 5.1-</hp:t><hp:ctrl><hp:autoNum num=\"1\" numType=\"PICTURE\"><hp:autoNumFormat type=\"DIGIT\" userChar=\"\" prefixChar=\"\" suffixChar=\"\" supscript=\"0\"/></hp:autoNum></hp:ctrl><hp:t>&gt; 치수경제성 분석 지구<hp:markpenEnd/></hp:t></hp:run><hp:linesegarray><hp:lineseg textpos=\"0\" vertpos=\"0\" vertsize=\"1100\" textheight=\"1100\" baseline=\"935\" spacing=\"1100\" horzpos=\"0\" horzsize=\"47908\" flags=\"393216\"/></hp:linesegarray></hp:p></hp:subList></hp:caption><hp:inMargin left=\"0\" right=\"0\" top=\"0\" bottom=\"0\"/><hp:tr><hp:tc name=\"\" header=\"0\" hasMargin=\"0\" protect=\"0\" editable=\"0\" dirty=\"0\" borderFillIDRef=\"30\"><hp:subList id=\"\" textDirection=\"HORIZONTAL\" lineWrap=\"BREAK\" vertAlign=\"CENTER\" linkListIDRef=\"0\" linkListNextIDRef=\"0\" textWidth=\"0\" textHeight=\"0\" hasTextRef=\"0\" hasNumRef=\"0\"><hp:p id=\"2147483648\" paraPrIDRef=\"41\" styleIDRef=\"0\" pageBreak=\"0\" columnBreak=\"0\" merged=\"0\"><hp:run charPrIDRef=\"24\"><hp:pic id=\"1177836989\" zOrder=\"118\" numberingType=\"NONE\" textWrap=\"TOP_AND_BOTTOM\" textFlow=\"BOTH_SIDES\" lock=\"0\" dropcapstyle=\"None\" href=\"\" groupLevel=\"0\" instid=\"104095166\" reverse=\"0\"><hp:offset x=\"0\" y=\"0\"/><hp:orgSz width=\"210480\" height=\"279960\"/><hp:curSz width=\"48095\" height=\"64065\"/><hp:flip horizontal=\"0\" vertical=\"0\"/><hp:rotationInfo angle=\"0\" centerX=\"24047\" centerY=\"32032\" rotateimage=\"1\"/><hp:renderingInfo><hc:transMatrix e1=\"1\" e2=\"0\" e3=\"0\" e4=\"0\" e5=\"1\" e6=\"0\"/><hc:scaMatrix e1=\"0.228502\" e2=\"0\" e3=\"0\" e4=\"0\" e5=\"0.228836\" e6=\"0\"/><hc:rotMatrix e1=\"1\" e2=\"0\" e3=\"0\" e4=\"0\" e5=\"1\" e6=\"0\"/></hp:renderingInfo><hp:imgRect><hc:pt0 x=\"0\" y=\"0\"/><hc:pt1 x=\"210480\" y=\"0\"/><hc:pt2 x=\"210480\" y=\"279960\"/><hc:pt3 x=\"0\" y=\"279960\"/></hp:imgRect><hp:imgClip left=\"0\" right=\"210480\" top=\"0\" bottom=\"279960\"/><hp:inMargin left=\"0\" right=\"0\" top=\"0\" bottom=\"0\"/><hc:img binaryItemIDRef=\"image1\" bright=\"0\" contrast=\"0\" effect=\"REAL_PIC\" alpha=\"0\"/><hp:effects/><hp:sz width=\"48095\" widthRelTo=\"ABSOLUTE\" height=\"64065\" heightRelTo=\"ABSOLUTE\" protect=\"0\"/><hp:pos treatAsChar=\"1\" affectLSpacing=\"0\" flowWithText=\"1\" allowOverlap=\"0\" holdAnchorAndSO=\"0\" vertRelTo=\"PARA\" horzRelTo=\"PARA\" vertAlign=\"TOP\" horzAlign=\"LEFT\" vertOffset=\"0\" horzOffset=\"0\"/><hp:outMargin left=\"0\" right=\"0\" top=\"0\" bottom=\"0\"/><hp:shapeComment>그림입니다.\n원본 그림의 이름: CLP0000baf80001.bmp\n원본 그림의 크기: 가로 2806pixel, 세로 3733pixel</hp:shapeComment></hp:pic><hp:t/></hp:run><hp:linesegarray><hp:lineseg textpos=\"0\" vertpos=\"0\" vertsize=\"64065\" textheight=\"64065\" baseline=\"54455\" spacing=\"500\" horzpos=\"0\" horzsize=\"47908\" flags=\"393216\"/></hp:linesegarray></hp:p></hp:subList><hp:cellAddr colAddr=\"0\" rowAddr=\"0\"/><hp:cellSpan colSpan=\"1\" rowSpan=\"1\"/><hp:cellSz width=\"47911\" height=\"62904\"/><hp:cellMargin left=\"510\" right=\"510\" top=\"141\" bottom=\"141\"/></hp:tc></hp:tr></hp:tbl><hp:t/></hp:run><hp:linesegarray><hp:lineseg textpos=\"0\" vertpos=\"0\" vertsize=\"66295\" textheight=\"66295\" baseline=\"56351\" spacing=\"500\" horzpos=\"0\" horzsize=\"48188\" flags=\"393216\"/></hp:linesegarray></hp:p>";
+  function figXml(f, k) {
+    var ow = f.w * 75, oh = f.h * 75, H = 64065, W = Math.round(H * f.w / f.h), x = FRAME;
+    var r = function (a, b) { x = x.split(a).join(b); };
+    r('<hp:markpenBegin color="#FFFF00"/>', ''); r('<hp:markpenEnd/>', '');
+    r('&gt; 치수경제성 분석 지구', '&gt; ' + esc(f.caption));
+    r('binaryItemIDRef="image1"', 'binaryItemIDRef="' + f.id + '"');
+    r('<hp:orgSz width="210480" height="279960"/>', '<hp:orgSz width="' + ow + '" height="' + oh + '"/>');
+    r('<hp:curSz width="48095" height="64065"/>', '<hp:curSz width="' + W + '" height="' + H + '"/>');
+    r('centerX="24047" centerY="32032"', 'centerX="' + Math.round(W / 2) + '" centerY="' + Math.round(H / 2) + '"');
+    r('e1="0.228502" e2="0" e3="0" e4="0" e5="0.228836"', 'e1="' + (W / ow).toFixed(6) + '" e2="0" e3="0" e4="0" e5="' + (H / oh).toFixed(6) + '"');
+    r('<hc:pt1 x="210480" y="0"/><hc:pt2 x="210480" y="279960"/><hc:pt3 x="0" y="279960"/>', '<hc:pt1 x="' + ow + '" y="0"/><hc:pt2 x="' + ow + '" y="' + oh + '"/><hc:pt3 x="0" y="' + oh + '"/>');
+    r('<hp:imgClip left="0" right="210480" top="0" bottom="279960"/>', '<hp:imgClip left="0" right="' + ow + '" top="0" bottom="' + oh + '"/>');
+    r('<hp:sz width="48095" widthRelTo="ABSOLUTE" height="64065"', '<hp:sz width="' + W + '" widthRelTo="ABSOLUTE" height="' + H + '"');
+    r('id="1177836989"', 'id="' + (1177836989 + k) + '"'); r('instid="104095166"', 'instid="' + (104095166 + k) + '"'); r('id="1185330942"', 'id="' + (1185330942 + k) + '"');
+    x = x.replace(/<hp:shapeComment>[\s\S]*?<\/hp:shapeComment>/, '<hp:shapeComment>그림입니다.\n원본 그림의 이름: ' + esc(f.file) + '\n원본 그림의 크기: 가로 ' + f.w + 'pixel, 세로 ' + f.h + 'pixel</hp:shapeComment>');
+    if (k > 0) x = x.replace('pageBreak="0"', 'pageBreak="1"');
+    return x.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');
+  }
+  function addFigures(zip, xml, figs) {
+    if (!figs || !figs.length) return Promise.resolve(xml);
+    var at = xml.indexOf('1.2 치수사업의 편익산정'); if (at < 0) return Promise.resolve(xml);
+    at = xml.lastIndexOf('<hp:p ', at);
+    xml = xml.slice(0, at) + figs.map(figXml).join('') + xml.slice(at);
+    figs.forEach(function (f) { zip.file('BinData/' + f.file, f.data); });
+    return zip.file('Contents/content.hpf').async('string').then(function (h) {
+      zip.file('Contents/content.hpf', h.replace('</opf:manifest>', figs.map(function (f) { return '<opf:item id="' + f.id + '" href="BinData/' + f.file + '" media-type="image/jpg" isEmbeded="1"/>'; }).join('') + '</opf:manifest>'));
+      return xml;
+    });
+  }
+  function make(tplB64, P, O, st, figs) {
     var A = ahp(O, st);
     return JSZip.loadAsync(tplB64, { base64: true }).then(function (zip) {
       return zip.file('Contents/section0.xml').async('string').then(function (x) {
-        zip.file('Contents/section0.xml', build(x, P, O, A, st));
+        return addFigures(zip, build(x, P, O, A, st), figs);
+      }).then(function (x) {
+        zip.file('Contents/section0.xml', x);
         return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/hwp+zip' });
       });
     }).then(function (blob) { return { blob: blob, ahp: A }; });

@@ -1173,7 +1173,11 @@ function template(){
 $('bHwp').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
   var b = this; b.disabled = true; log('보고서 만드는 중…');
-  template().then(function(t){ return REPORT.make(t, P, OUT, P.settings); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
+  var figs = mapsReady() ? mapsJob('jpg').then(function(list){
+      return Promise.all(list.map(function(m, i){ return m.blob.arrayBuffer().then(function(buf){ return {id:'fig' + (i + 1), file:'fig' + (i + 1) + '.jpg', caption:m.caption, data:buf, w:m.w, h:m.h}; }); }));
+    }).catch(function(e){ log('⚠ 위치도를 넣지 못했습니다(' + e.message + ') — 그림 없이 만듭니다.'); return []; })
+    : Promise.resolve([]).then(function(x){ log('지구 형상이 없어 위치도 없이 보고서를 만듭니다.'); return x; });
+  Promise.all([template(), figs]).then(function(r){ if (r[1].length) log('보고서에 위치도 ' + r[1].length + '장을 넣습니다(1.1 끝, <그림 5.1-N>).'); return REPORT.make(r[0], P, OUT, P.settings, r[1]); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
     .catch(function(e){ log('오류: ' + e.message); }).then(function(){ b.disabled = false; });
 };
 $('bGis').onclick = function(){
@@ -1182,18 +1186,16 @@ $('bGis').onclick = function(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['빈도(년)','지구명','침수심','토지피복','면적(㎡)']].concat(P.gis.map(function(g){ return [g.T, g.district, g.depth, g.cover || g.cls, g.area]; }))), 'GIS면적');
   saveWb(wb, '침수면적_' + ((P.districts[0] || {}).river || '') + '.xlsx');
 };
-$('bMap').onclick = function(){
-  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
-  if (!KMAP || !KMAP.dist.length) { log('위성 위치도: 지구 형상이 없습니다. 측선·수치지도(+지구계 또는 유역계)를 넣고 분석해야 그릴 수 있습니다.'); return; }
-  var b = this; b.disabled = true;
+// 위성 위치도 만들기(공통): fmt 'png'(내려받기) / 'jpg'(보고서에 넣기) → [{name, file, caption, blob, w, h}]
+function mapsReady(){ return KMAP && KMAP.dist.length; }
+function mapsJob(fmt){
   var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
   var rows = res.map(function(r){ var x = designOf(r), e = x.e, a = rk[r.district.name] || {}, d = r.district;
     return {name:d.name, len:(d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0), cost:e ? e.total : null, bc:e ? e.BC : null, score:a.score, rank:a.rank, T:x.T, section:d.section}; });
   var d0 = P.districts[0] || {}, emds = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
   var rl = 0; for (var i = 1; i < KMAP.river.length; i++) rl += Math.hypot(KMAP.river[i][0] - KMAP.river[i - 1][0], KMAP.river[i][1] - KMAP.river[i - 1][1]);
   var info = {title:[d0.sido, d0.sigungu, emds.join('·')], river:d0.river || '', rows:rows, taskLen:String(CUR.taskLen || '').trim() || (rl ? (rl / 1000).toFixed(2) : ''), riverLen:String(CUR.riverLen || '').trim()};
-  var z = new JSZip(), river = d0.river || '', names = rows.map(function(r){ return r.name; }), k = 0, mapT = Math.max.apply(null, rows.map(function(r){ return r.T || 0; }));
-  var png = function(cv){ return new Promise(function(ok){ cv.toBlob(ok, 'image/png'); }); };
+  var river = d0.river || '', names = rows.map(function(r){ return r.name; }), mapT = Math.max.apply(null, rows.map(function(r){ return r.T || 0; }));
   var ovl = null, Fo = FILES.filter(function(f){ return f.role === 'locmap' && (f.ov || f.text); });
   if (Fo.length) {
     var ol = []; Fo.forEach(function(f){ if (!f.ov) f.ov = LOCMAP.parseOverlay(f.text); ol = ol.concat(f.ov.lines); });
@@ -1203,13 +1205,23 @@ $('bMap').onclick = function(){
     ovl = {lines:ol.map(function(o){ return {color:o.color, dash:o.dash, coords:o.coords.map(otf)}; })};
     log('기존 위치도 선 ' + ol.length + '개를 얹음 (좌표계 ' + (CRS.LABEL[oc] || oc) + ')');
   }
+  var enc = function(cv){ return new Promise(function(ok){ cv.toBlob(function(bl){ ok({blob:bl, w:cv.width, h:cv.height}); }, fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.88); }); };
+  var out = [], ext = fmt === 'jpg' ? '.jpg' : '.png';
   log('위성 위치도 그리는 중… (종합 1장 + 지구별 ' + names.length + '장)');
-  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(png).then(function(bl){ z.file('00_' + (river ? river + '_' : '') + '종합위치도.png', bl); });
-  names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(png).then(function(bl){ z.file(('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도.png', bl); k++; }); });
-  chain.then(function(){ return z.generateAsync({type:'blob'}); }).then(function(bl){
-    log('위성 위치도 ' + (k + 1) + '장 완료 (A4 세로 300dpi PNG) — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
-    return save(bl, (river ? river + '_' : '') + '위성위치도.zip');
-  }).catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
+  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(enc).then(function(r){ out.push({name:'종합', file:'00_' + (river ? river + '_' : '') + '종합위치도' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 종합위치도', blob:r.blob, w:r.w, h:r.h}); });
+  names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
+  return chain.then(function(){
+    log('위성 위치도 ' + out.length + '장 완료 — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
+    return out;
+  });
+}
+$('bMap').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
+  if (!mapsReady()) { log('위성 위치도: 지구 형상이 없습니다. 측선·수치지도(+지구계 또는 유역계)를 넣고 분석해야 그릴 수 있습니다.'); return; }
+  var b = this, river = (P.districts[0] || {}).river || ''; b.disabled = true;
+  mapsJob('png').then(function(list){ var z = new JSZip(); list.forEach(function(m){ z.file(m.file, m.blob); }); return z.generateAsync({type:'blob'}); })
+    .then(function(bl){ return save(bl, (river ? river + '_' : '') + '위성위치도.zip'); })
+    .catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
 };
 $('bXls').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }

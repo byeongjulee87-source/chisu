@@ -2418,11 +2418,44 @@ var REPORT = (function () {
   }
 
   /* tplB64: 템플릿 hwpx(base64) → Blob */
-  function make(tplB64, P, O, st) {
+  // ---- 그림(위치도): 원래 양식의 그림 틀(1칸 표 + 자동번호 캡션 <그림 5.1-N>)을 그대로 써서 '1.2 치수사업의 편익산정' 앞에 넣음 ----
+  var FRAME = "<hp:p id=\"2147483648\" paraPrIDRef=\"41\" styleIDRef=\"0\" pageBreak=\"0\" columnBreak=\"0\" merged=\"0\"><hp:run charPrIDRef=\"42\"><hp:tbl id=\"1185330942\" zOrder=\"1\" numberingType=\"PICTURE\" textWrap=\"TOP_AND_BOTTOM\" textFlow=\"BOTH_SIDES\" lock=\"0\" dropcapstyle=\"None\" pageBreak=\"NONE\" repeatHeader=\"1\" rowCnt=\"1\" colCnt=\"1\" cellSpacing=\"0\" borderFillIDRef=\"3\" noAdjust=\"0\"><hp:sz width=\"47911\" widthRelTo=\"ABSOLUTE\" height=\"64065\" heightRelTo=\"ABSOLUTE\" protect=\"0\"/><hp:pos treatAsChar=\"1\" affectLSpacing=\"0\" flowWithText=\"1\" allowOverlap=\"0\" holdAnchorAndSO=\"0\" vertRelTo=\"PARA\" horzRelTo=\"PARA\" vertAlign=\"TOP\" horzAlign=\"LEFT\" vertOffset=\"0\" horzOffset=\"0\"/><hp:outMargin left=\"140\" right=\"140\" top=\"140\" bottom=\"140\"/><hp:caption side=\"BOTTOM\" fullSz=\"0\" width=\"8504\" gap=\"850\" lastWidth=\"47911\"><hp:subList id=\"\" textDirection=\"HORIZONTAL\" lineWrap=\"BREAK\" vertAlign=\"TOP\" linkListIDRef=\"0\" linkListNextIDRef=\"0\" textWidth=\"0\" textHeight=\"0\" hasTextRef=\"0\" hasNumRef=\"0\"><hp:p id=\"2147483648\" paraPrIDRef=\"53\" styleIDRef=\"11\" pageBreak=\"0\" columnBreak=\"0\" merged=\"0\"><hp:run charPrIDRef=\"23\"><hp:t><hp:markpenBegin color=\"#FFFF00\"/>&lt;그림 5.1-</hp:t><hp:ctrl><hp:autoNum num=\"1\" numType=\"PICTURE\"><hp:autoNumFormat type=\"DIGIT\" userChar=\"\" prefixChar=\"\" suffixChar=\"\" supscript=\"0\"/></hp:autoNum></hp:ctrl><hp:t>&gt; 치수경제성 분석 지구<hp:markpenEnd/></hp:t></hp:run><hp:linesegarray><hp:lineseg textpos=\"0\" vertpos=\"0\" vertsize=\"1100\" textheight=\"1100\" baseline=\"935\" spacing=\"1100\" horzpos=\"0\" horzsize=\"47908\" flags=\"393216\"/></hp:linesegarray></hp:p></hp:subList></hp:caption><hp:inMargin left=\"0\" right=\"0\" top=\"0\" bottom=\"0\"/><hp:tr><hp:tc name=\"\" header=\"0\" hasMargin=\"0\" protect=\"0\" editable=\"0\" dirty=\"0\" borderFillIDRef=\"30\"><hp:subList id=\"\" textDirection=\"HORIZONTAL\" lineWrap=\"BREAK\" vertAlign=\"CENTER\" linkListIDRef=\"0\" linkListNextIDRef=\"0\" textWidth=\"0\" textHeight=\"0\" hasTextRef=\"0\" hasNumRef=\"0\"><hp:p id=\"2147483648\" paraPrIDRef=\"41\" styleIDRef=\"0\" pageBreak=\"0\" columnBreak=\"0\" merged=\"0\"><hp:run charPrIDRef=\"24\"><hp:pic id=\"1177836989\" zOrder=\"118\" numberingType=\"NONE\" textWrap=\"TOP_AND_BOTTOM\" textFlow=\"BOTH_SIDES\" lock=\"0\" dropcapstyle=\"None\" href=\"\" groupLevel=\"0\" instid=\"104095166\" reverse=\"0\"><hp:offset x=\"0\" y=\"0\"/><hp:orgSz width=\"210480\" height=\"279960\"/><hp:curSz width=\"48095\" height=\"64065\"/><hp:flip horizontal=\"0\" vertical=\"0\"/><hp:rotationInfo angle=\"0\" centerX=\"24047\" centerY=\"32032\" rotateimage=\"1\"/><hp:renderingInfo><hc:transMatrix e1=\"1\" e2=\"0\" e3=\"0\" e4=\"0\" e5=\"1\" e6=\"0\"/><hc:scaMatrix e1=\"0.228502\" e2=\"0\" e3=\"0\" e4=\"0\" e5=\"0.228836\" e6=\"0\"/><hc:rotMatrix e1=\"1\" e2=\"0\" e3=\"0\" e4=\"0\" e5=\"1\" e6=\"0\"/></hp:renderingInfo><hp:imgRect><hc:pt0 x=\"0\" y=\"0\"/><hc:pt1 x=\"210480\" y=\"0\"/><hc:pt2 x=\"210480\" y=\"279960\"/><hc:pt3 x=\"0\" y=\"279960\"/></hp:imgRect><hp:imgClip left=\"0\" right=\"210480\" top=\"0\" bottom=\"279960\"/><hp:inMargin left=\"0\" right=\"0\" top=\"0\" bottom=\"0\"/><hc:img binaryItemIDRef=\"image1\" bright=\"0\" contrast=\"0\" effect=\"REAL_PIC\" alpha=\"0\"/><hp:effects/><hp:sz width=\"48095\" widthRelTo=\"ABSOLUTE\" height=\"64065\" heightRelTo=\"ABSOLUTE\" protect=\"0\"/><hp:pos treatAsChar=\"1\" affectLSpacing=\"0\" flowWithText=\"1\" allowOverlap=\"0\" holdAnchorAndSO=\"0\" vertRelTo=\"PARA\" horzRelTo=\"PARA\" vertAlign=\"TOP\" horzAlign=\"LEFT\" vertOffset=\"0\" horzOffset=\"0\"/><hp:outMargin left=\"0\" right=\"0\" top=\"0\" bottom=\"0\"/><hp:shapeComment>그림입니다.\n원본 그림의 이름: CLP0000baf80001.bmp\n원본 그림의 크기: 가로 2806pixel, 세로 3733pixel</hp:shapeComment></hp:pic><hp:t/></hp:run><hp:linesegarray><hp:lineseg textpos=\"0\" vertpos=\"0\" vertsize=\"64065\" textheight=\"64065\" baseline=\"54455\" spacing=\"500\" horzpos=\"0\" horzsize=\"47908\" flags=\"393216\"/></hp:linesegarray></hp:p></hp:subList><hp:cellAddr colAddr=\"0\" rowAddr=\"0\"/><hp:cellSpan colSpan=\"1\" rowSpan=\"1\"/><hp:cellSz width=\"47911\" height=\"62904\"/><hp:cellMargin left=\"510\" right=\"510\" top=\"141\" bottom=\"141\"/></hp:tc></hp:tr></hp:tbl><hp:t/></hp:run><hp:linesegarray><hp:lineseg textpos=\"0\" vertpos=\"0\" vertsize=\"66295\" textheight=\"66295\" baseline=\"56351\" spacing=\"500\" horzpos=\"0\" horzsize=\"48188\" flags=\"393216\"/></hp:linesegarray></hp:p>";
+  function figXml(f, k) {
+    var ow = f.w * 75, oh = f.h * 75, H = 64065, W = Math.round(H * f.w / f.h), x = FRAME;
+    var r = function (a, b) { x = x.split(a).join(b); };
+    r('<hp:markpenBegin color="#FFFF00"/>', ''); r('<hp:markpenEnd/>', '');
+    r('&gt; 치수경제성 분석 지구', '&gt; ' + esc(f.caption));
+    r('binaryItemIDRef="image1"', 'binaryItemIDRef="' + f.id + '"');
+    r('<hp:orgSz width="210480" height="279960"/>', '<hp:orgSz width="' + ow + '" height="' + oh + '"/>');
+    r('<hp:curSz width="48095" height="64065"/>', '<hp:curSz width="' + W + '" height="' + H + '"/>');
+    r('centerX="24047" centerY="32032"', 'centerX="' + Math.round(W / 2) + '" centerY="' + Math.round(H / 2) + '"');
+    r('e1="0.228502" e2="0" e3="0" e4="0" e5="0.228836"', 'e1="' + (W / ow).toFixed(6) + '" e2="0" e3="0" e4="0" e5="' + (H / oh).toFixed(6) + '"');
+    r('<hc:pt1 x="210480" y="0"/><hc:pt2 x="210480" y="279960"/><hc:pt3 x="0" y="279960"/>', '<hc:pt1 x="' + ow + '" y="0"/><hc:pt2 x="' + ow + '" y="' + oh + '"/><hc:pt3 x="0" y="' + oh + '"/>');
+    r('<hp:imgClip left="0" right="210480" top="0" bottom="279960"/>', '<hp:imgClip left="0" right="' + ow + '" top="0" bottom="' + oh + '"/>');
+    r('<hp:sz width="48095" widthRelTo="ABSOLUTE" height="64065"', '<hp:sz width="' + W + '" widthRelTo="ABSOLUTE" height="' + H + '"');
+    r('id="1177836989"', 'id="' + (1177836989 + k) + '"'); r('instid="104095166"', 'instid="' + (104095166 + k) + '"'); r('id="1185330942"', 'id="' + (1185330942 + k) + '"');
+    x = x.replace(/<hp:shapeComment>[\s\S]*?<\/hp:shapeComment>/, '<hp:shapeComment>그림입니다.\n원본 그림의 이름: ' + esc(f.file) + '\n원본 그림의 크기: 가로 ' + f.w + 'pixel, 세로 ' + f.h + 'pixel</hp:shapeComment>');
+    if (k > 0) x = x.replace('pageBreak="0"', 'pageBreak="1"');
+    return x.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');
+  }
+  function addFigures(zip, xml, figs) {
+    if (!figs || !figs.length) return Promise.resolve(xml);
+    var at = xml.indexOf('1.2 치수사업의 편익산정'); if (at < 0) return Promise.resolve(xml);
+    at = xml.lastIndexOf('<hp:p ', at);
+    xml = xml.slice(0, at) + figs.map(figXml).join('') + xml.slice(at);
+    figs.forEach(function (f) { zip.file('BinData/' + f.file, f.data); });
+    return zip.file('Contents/content.hpf').async('string').then(function (h) {
+      zip.file('Contents/content.hpf', h.replace('</opf:manifest>', figs.map(function (f) { return '<opf:item id="' + f.id + '" href="BinData/' + f.file + '" media-type="image/jpg" isEmbeded="1"/>'; }).join('') + '</opf:manifest>'));
+      return xml;
+    });
+  }
+  function make(tplB64, P, O, st, figs) {
     var A = ahp(O, st);
     return JSZip.loadAsync(tplB64, { base64: true }).then(function (zip) {
       return zip.file('Contents/section0.xml').async('string').then(function (x) {
-        zip.file('Contents/section0.xml', build(x, P, O, A, st));
+        return addFigures(zip, build(x, P, O, A, st), figs);
+      }).then(function (x) {
+        zip.file('Contents/section0.xml', x);
         return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/hwp+zip' });
       });
     }).then(function (blob) { return { blob: blob, ahp: A }; });
@@ -3595,7 +3628,11 @@ function template(){
 $('bHwp').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
   var b = this; b.disabled = true; log('보고서 만드는 중…');
-  template().then(function(t){ return REPORT.make(t, P, OUT, P.settings); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
+  var figs = mapsReady() ? mapsJob('jpg').then(function(list){
+      return Promise.all(list.map(function(m, i){ return m.blob.arrayBuffer().then(function(buf){ return {id:'fig' + (i + 1), file:'fig' + (i + 1) + '.jpg', caption:m.caption, data:buf, w:m.w, h:m.h}; }); }));
+    }).catch(function(e){ log('⚠ 위치도를 넣지 못했습니다(' + e.message + ') — 그림 없이 만듭니다.'); return []; })
+    : Promise.resolve([]).then(function(x){ log('지구 형상이 없어 위치도 없이 보고서를 만듭니다.'); return x; });
+  Promise.all([template(), figs]).then(function(r){ if (r[1].length) log('보고서에 위치도 ' + r[1].length + '장을 넣습니다(1.1 끝, <그림 5.1-N>).'); return REPORT.make(r[0], P, OUT, P.settings, r[1]); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
     .catch(function(e){ log('오류: ' + e.message); }).then(function(){ b.disabled = false; });
 };
 $('bGis').onclick = function(){
@@ -3604,18 +3641,16 @@ $('bGis').onclick = function(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['빈도(년)','지구명','침수심','토지피복','면적(㎡)']].concat(P.gis.map(function(g){ return [g.T, g.district, g.depth, g.cover || g.cls, g.area]; }))), 'GIS면적');
   saveWb(wb, '침수면적_' + ((P.districts[0] || {}).river || '') + '.xlsx');
 };
-$('bMap').onclick = function(){
-  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
-  if (!KMAP || !KMAP.dist.length) { log('위성 위치도: 지구 형상이 없습니다. 측선·수치지도(+지구계 또는 유역계)를 넣고 분석해야 그릴 수 있습니다.'); return; }
-  var b = this; b.disabled = true;
+// 위성 위치도 만들기(공통): fmt 'png'(내려받기) / 'jpg'(보고서에 넣기) → [{name, file, caption, blob, w, h}]
+function mapsReady(){ return KMAP && KMAP.dist.length; }
+function mapsJob(fmt){
   var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
   var rows = res.map(function(r){ var x = designOf(r), e = x.e, a = rk[r.district.name] || {}, d = r.district;
     return {name:d.name, len:(d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0), cost:e ? e.total : null, bc:e ? e.BC : null, score:a.score, rank:a.rank, T:x.T, section:d.section}; });
   var d0 = P.districts[0] || {}, emds = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
   var rl = 0; for (var i = 1; i < KMAP.river.length; i++) rl += Math.hypot(KMAP.river[i][0] - KMAP.river[i - 1][0], KMAP.river[i][1] - KMAP.river[i - 1][1]);
   var info = {title:[d0.sido, d0.sigungu, emds.join('·')], river:d0.river || '', rows:rows, taskLen:String(CUR.taskLen || '').trim() || (rl ? (rl / 1000).toFixed(2) : ''), riverLen:String(CUR.riverLen || '').trim()};
-  var z = new JSZip(), river = d0.river || '', names = rows.map(function(r){ return r.name; }), k = 0, mapT = Math.max.apply(null, rows.map(function(r){ return r.T || 0; }));
-  var png = function(cv){ return new Promise(function(ok){ cv.toBlob(ok, 'image/png'); }); };
+  var river = d0.river || '', names = rows.map(function(r){ return r.name; }), mapT = Math.max.apply(null, rows.map(function(r){ return r.T || 0; }));
   var ovl = null, Fo = FILES.filter(function(f){ return f.role === 'locmap' && (f.ov || f.text); });
   if (Fo.length) {
     var ol = []; Fo.forEach(function(f){ if (!f.ov) f.ov = LOCMAP.parseOverlay(f.text); ol = ol.concat(f.ov.lines); });
@@ -3625,13 +3660,23 @@ $('bMap').onclick = function(){
     ovl = {lines:ol.map(function(o){ return {color:o.color, dash:o.dash, coords:o.coords.map(otf)}; })};
     log('기존 위치도 선 ' + ol.length + '개를 얹음 (좌표계 ' + (CRS.LABEL[oc] || oc) + ')');
   }
+  var enc = function(cv){ return new Promise(function(ok){ cv.toBlob(function(bl){ ok({blob:bl, w:cv.width, h:cv.height}); }, fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.88); }); };
+  var out = [], ext = fmt === 'jpg' ? '.jpg' : '.png';
   log('위성 위치도 그리는 중… (종합 1장 + 지구별 ' + names.length + '장)');
-  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(png).then(function(bl){ z.file('00_' + (river ? river + '_' : '') + '종합위치도.png', bl); });
-  names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(png).then(function(bl){ z.file(('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도.png', bl); k++; }); });
-  chain.then(function(){ return z.generateAsync({type:'blob'}); }).then(function(bl){
-    log('위성 위치도 ' + (k + 1) + '장 완료 (A4 세로 300dpi PNG) — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
-    return save(bl, (river ? river + '_' : '') + '위성위치도.zip');
-  }).catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
+  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(enc).then(function(r){ out.push({name:'종합', file:'00_' + (river ? river + '_' : '') + '종합위치도' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 종합위치도', blob:r.blob, w:r.w, h:r.h}); });
+  names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
+  return chain.then(function(){
+    log('위성 위치도 ' + out.length + '장 완료 — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
+    return out;
+  });
+}
+$('bMap').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
+  if (!mapsReady()) { log('위성 위치도: 지구 형상이 없습니다. 측선·수치지도(+지구계 또는 유역계)를 넣고 분석해야 그릴 수 있습니다.'); return; }
+  var b = this, river = (P.districts[0] || {}).river || ''; b.disabled = true;
+  mapsJob('png').then(function(list){ var z = new JSZip(); list.forEach(function(m){ z.file(m.file, m.blob); }); return z.generateAsync({type:'blob'}); })
+    .then(function(bl){ return save(bl, (river ? river + '_' : '') + '위성위치도.zip'); })
+    .catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
 };
 $('bXls').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
