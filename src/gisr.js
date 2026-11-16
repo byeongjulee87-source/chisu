@@ -154,12 +154,13 @@ var GISR = (function () {
   function parseDxf(text, opt) {
     opt = opt || {};
     var contourRe = opt.contourLayers || /^F00171/, spotRe = opt.spotLayers || /^F00272(17|14|11)?/;
-    var L = text.split(/\r?\n/), out = { contours: [], points: [], lines: [], texts: [] }, inEnt = false;
+    var L = text.split(/\r?\n/), out = { contours: [], points: [], lines: [], texts: [] }, inEnt = !!opt.inEnt, keep = opt.keepLines !== false, thin = opt.thin || 0;
+    var thinC = function (c) { if (!thin || c.length < 3) return c; var r = [c[0]], q = c[0]; for (var k = 1; k < c.length - 1; k++) { var a = c[k]; if (Math.abs(a[0] - q[0]) + Math.abs(a[1] - q[1]) >= thin) { r.push(a); q = a; } } r.push(c[c.length - 1]); return r; };
     for (var i = 0; i + 1 < L.length; i += 2) {
       var c = L[i].trim(), v = L[i + 1].trim();
       if (c === '2' && v === 'ENTITIES') { inEnt = true; continue; }
       if (!inEnt || c !== '0') continue;
-      if (v === 'ENDSEC') break;
+      if (v === 'ENDSEC') { out.ended = true; break; }
       var type = v, j = i + 2, ly = '', xs = [], ys = [], zs = [], elev = null, txt = null, closed = false;
       if (type === 'POLYLINE') {   // 3D 폴리라인: VERTEX 들
         var lay0 = '', cl0 = false;
@@ -173,8 +174,8 @@ var GISR = (function () {
           } else j += 2;
         }
         if (pts.length > 1) {
-          if (contourRe.test(lay0)) out.contours.push({ layer: lay0, coords: pts.map(function (p) { return [p[0], p[1]]; }), z: pts[0][2] });
-          else { var pc = pts.map(function (p) { return [p[0], p[1]]; }); if (cl0 && pc.length > 2) pc.push(pc[0]); out.lines.push({ layer: lay0, coords: pc, closed: cl0 }); }
+          if (contourRe.test(lay0)) out.contours.push({ layer: lay0, coords: thinC(pts.map(function (p) { return [p[0], p[1]]; })), z: pts[0][2] });
+          else if (keep) { var pc = pts.map(function (p) { return [p[0], p[1]]; }); if (cl0 && pc.length > 2) pc.push(pc[0]); out.lines.push({ layer: lay0, coords: pc, closed: cl0 }); }
         }
         i = j - 2; continue;
       }
@@ -191,14 +192,15 @@ var GISR = (function () {
       if (type === 'LWPOLYLINE' || type === 'LINE') {
         var z = type === 'LWPOLYLINE' ? (elev !== null ? elev : (zs[0] || 0)) : (zs[0] || 0);
         if (closed && coords.length > 2) coords.push(coords[0]);
-        if (contourRe.test(ly)) out.contours.push({ layer: ly, coords: coords, z: z });
-        else out.lines.push({ layer: ly, coords: coords, closed: closed });
+        if (contourRe.test(ly)) out.contours.push({ layer: ly, coords: thinC(coords), z: z });
+        else if (keep) out.lines.push({ layer: ly, coords: coords, closed: closed });
       } else if ((type === 'INSERT' || type === 'POINT') && spotRe.test(ly)) {
         out.points.push({ x: xs[0], y: ys[0], z: zs[0] || 0 });
-      } else if ((type === 'TEXT' || type === 'MTEXT') && txt) {
+      } else if (keep && (type === 'TEXT' || type === 'MTEXT') && txt) {
         out.texts.push({ layer: ly, x: xs[0], y: ys[0], text: txt.replace(/\\[A-Za-z][^;]*;|[{}]/g, '') });
       }
     }
+    out.inEnt = inEnt && !out.ended;
     return out;
   }
 
@@ -211,6 +213,37 @@ var GISR = (function () {
       return { coords: ln.coords, station: best, labelDist: bd };
     });
   }
-  return { run: run, parseDxf: parseDxf, joinStations: joinStations, stationKey: stationKey, demSampler: demSampler, rasterZones: rasterZones, CLASSES: CLASSES };
+  // 큰 DXF(수백 MB): 문자열 한계(약 5억 자)를 넘으면 브라우저가 빈 문자열을 돌려주므로 객체 경계에서 잘라 조각별로 읽음
+  function parseDxfBuf(buf, opt) {
+    opt = opt || {};
+    var u8 = new Uint8Array(buf), N = u8.length, CH = opt.chunk || 48 * 1048576, enc = 'utf-8';
+    var k4 = Math.min(N, 4 * 1048576); if (k4 < N) while (k4 > 0 && u8[k4 - 1] !== 10) k4--;
+    try { new TextDecoder('utf-8', { fatal: true }).decode(u8.subarray(0, k4)); } catch (e) { enc = 'euc-kr'; }
+    var dec = new TextDecoder(enc), out = { contours: [], points: [], lines: [], texts: [] }, st = { inEnt: false }, p = 0;
+    while (p < N) {
+      var e = p + CH >= N ? N : cutAt(u8, p + CH, p);
+      var o = parseDxf(dec.decode(u8.subarray(p, e)), Object.assign({}, opt, { inEnt: st.inEnt }));
+      ['contours', 'points', 'lines', 'texts'].forEach(function (k) { for (var i = 0; i < o[k].length; i++) out[k].push(o[k][i]); });
+      st.inEnt = o.inEnt; if (o.ended) break;
+      if (opt.progress) opt.progress(e / N);
+      p = e;
+    }
+    return out;
+  }
+  // pos 이후 첫 '  0'(그룹코드 0) 줄의 시작 위치 — VERTEX·SEQEND 앞에서는 자르지 않음
+  function cutAt(u8, pos, lo) {
+    var N = u8.length;
+    for (var i = Math.max(pos, lo + 1); i < N - 2; i++) {
+      if (u8[i - 1] !== 10) continue;
+      var j = i; while (j < N && u8[j] === 32) j++;
+      if (u8[j] !== 48) continue; j++; if (u8[j] === 13) j++; if (u8[j] !== 10) continue; j++;
+      var nm = ''; for (var k = j; k < Math.min(N, j + 20) && u8[k] > 32; k++) nm += String.fromCharCode(u8[k]);
+      if (!/^[A-Z][A-Z0-9_]{2,}$/.test(nm) || nm === 'VERTEX' || nm === 'SEQEND') continue;
+      return i;
+    }
+    return N;
+  }
+
+  return { run: run, parseDxf: parseDxf, parseDxfBuf: parseDxfBuf, joinStations: joinStations, stationKey: stationKey, demSampler: demSampler, rasterZones: rasterZones, CLASSES: CLASSES };
 })();
 if (typeof module !== 'undefined') module.exports = GISR;
