@@ -183,6 +183,20 @@ var KFRM = (function () {
     var s = 0, w = 0; Object.keys(VEH).forEach(function (t) { if (VEH[t][1] !== g) return; s += VEH[t][2] * VEH[t][0] * 1000 * SALV[t.slice(0, 3)] / 100; w += VEH[t][2]; });
     return w ? s / w : 0;
   });
+  // 차량 대수(집계구 추정) → 손상함수 그룹별 대수·가치: 차급 구성비 mix {PAS, VAN, TRU} × 차급 안 차종비(표 3.12)
+  function vehiclesFromCount(items, mix) {
+    var cls = {}; ['PAS', 'VAN', 'TRU'].forEach(function (c) {
+      var n = [0, 0, 0], v = [0, 0, 0], w = 0;
+      Object.keys(VEH).forEach(function (t) { if (t.slice(0, 3) !== c) return; w += VEH[t][2]; });
+      Object.keys(VEH).forEach(function (t) { if (t.slice(0, 3) !== c) return; var g = VEH[t][1], r = VEH[t][2] / w; n[g] += r; v[g] += r * VEH[t][0] * 1000 * SALV[c] / 100; });
+      cls[c] = { n: n, v: v };
+    });
+    return items.map(function (q) {
+      var n = [0, 0, 0], v = [0, 0, 0];
+      ['PAS', 'VAN', 'TRU'].forEach(function (c) { var k = q.count * (mix[c] || 0); for (var g = 0; g < 3; g++) { n[g] += k * cls[c].n[g]; v[g] += k * cls[c].v[g]; } });
+      return { rings: q.rings, area: q.area, n: n, v: v };
+    });
+  }
   function population(feats) {
     return feats.map(function (f) {
       var p = f.props, vul = +num(p, ['VUL_POP']) || 0, gen = +num(p, ['GEN_POP']);
@@ -315,7 +329,7 @@ var KFRM = (function () {
       residential: 0, nonresidential: 0, industry: 0, agriculture: 0, general: 0, lifeOnly: 0, evac: 0, life: 0, public: 0, total: 0,
       casualties: 0, deaths: 0, injuries: 0, evacuees: 0, par: 0, nBldg: 0, nBldgRes: 0, nVeh: 0 };
   }
-  return { compute: compute, zero: zero, buildings: buildings, vehicles: vehicles, population: population, farmland: farmland, centroid: centroid, polyArea: polyArea,
+  return { compute: compute, zero: zero, buildings: buildings, vehicles: vehicles, vehiclesFromCount: vehiclesFromCount, population: population, farmland: farmland, centroid: centroid, polyArea: polyArea,
     useOf: useOf, strOf: strOf, DURATIONS: DURATIONS, PUBLIC: PUBLIC, LIFE: LIFE, BU: BU, CROP: CROP, FARM_UNIT: FARM_UNIT };
 })();
 if (typeof module !== 'undefined') module.exports = KFRM;

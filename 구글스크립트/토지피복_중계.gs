@@ -1,8 +1,8 @@
 /**
- * 치수경제성 — 환경부 토지피복도 중계 (구글 스크립트 웹앱)
+ * 치수경제성 — 공공 GIS 중계 (구글 스크립트 웹앱) — 환경부 토지피복도 + K-CDMS 인벤토리
  *
  * 환경부 환경공간정보서비스(api.mcee.go.kr) WFS는 다른 사이트에서 브라우저로 직접 읽는 것(CORS)을 막아 두어서,
- * 이 스크립트가 대신 받아 JSONP로 돌려줍니다. 환경부 WFS 주소만 중계합니다(다른 주소는 거절).
+ * 이 스크립트가 대신 받아 JSONP로 돌려줍니다. 환경부 토지피복·K-CDMS 인벤토리 주소만 중계합니다(다른 주소는 거절).
  *
  * 설정 (처음 한 번, 2분)
  *  1. https://script.google.com → [새 프로젝트] → 이름 "치수경제성 토지피복 중계"
@@ -13,20 +13,22 @@
  *     [배포] → 권한 승인(외부 서비스 연결) → "웹 앱 URL"(…/exec) 복사
  *  4. 치수경제성 사이트 [자동 불러오기 설정] → "토지피복 중계 URL"에 붙여넣기
  *     (사이트에 공용으로 넣으려면 그 URL을 알려주세요)
+ *
+ * 고칠 때(주소는 그대로): 내용 바꿔 저장 → [배포] → [배포 관리] → 연필 → 버전: "새 버전" → [배포]
  */
 function doGet(e) {
   var p = (e && e.parameter) || {};
   var cb = String(p.callback || '');
   var body;
-  if (!/^https:\/\/api\.mcee\.go\.kr\/geoserver\/wfs\?/.test(String(p.u || ''))) {
-    body = JSON.stringify({ error: '환경부 WFS 주소만 중계합니다' });
+  if (!/^https:\/\/(api\.mcee\.go\.kr\/geoserver\/wfs|kfrm\.hermesys\.co\.kr\/geoserver\/ows)\?/.test(String(p.u || ''))) {
+    body = JSON.stringify({ error: '환경부 토지피복·K-CDMS 인벤토리 주소만 중계합니다' });
   } else {
     try {
       var r = UrlFetchApp.fetch(p.u, { muteHttpExceptions: true, followRedirects: true });
       var t = r.getContentText('UTF-8');
-      body = /^\s*\{/.test(t) ? t : JSON.stringify({ error: '환경부 응답 오류(' + r.getResponseCode() + '): ' + t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+      body = /^\s*\{/.test(t) ? t : JSON.stringify({ error: '원 서버 응답 오류(' + r.getResponseCode() + '): ' + t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     } catch (x) {
-      body = JSON.stringify({ error: '환경부 서버 연결 실패: ' + x.message });
+      body = JSON.stringify({ error: '원 서버 연결 실패: ' + x.message });
     }
   }
   if (/^[A-Za-z_$][\w$]*$/.test(cb)) {
