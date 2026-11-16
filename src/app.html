@@ -449,7 +449,7 @@ $('priceForm').addEventListener('change', function(e){ var k = e.target.dataset.
   try { localStorage.setItem(PRICE_KEY, JSON.stringify(PRICE)); } catch (x) {}
   if (e.target.tagName === 'SELECT') priceForm(); });
 // 사이트에 내장한 공용 키(소유자 요청). 화면에 각자 키를 넣으면 그 키가 우선. 브이월드 키는 등록 주소(깃허브 사이트)에서만 동작
-var API_DEF = {vkey:'87C87907-9357-4296-BD66-4A0C31E515E2', vdomain:'https://byeongjulee87-source.github.io', ckey:'', csec:''};
+var API_DEF = {vkey:'87C87907-9357-4296-BD66-4A0C31E515E2', vdomain:'https://byeongjulee87-source.github.io', ckey:'d00f232e781043e98722', csec:'3298886d4ee54027bfce'};
 var API_KEY = 'chisu-api', API = {on:true, vkey:'', vdomain:'', ckey:'', csec:''};
 function apiv(k){ return API[k] || API_DEF[k] || ''; }
 try { var av0 = JSON.parse(localStorage.getItem(API_KEY) || 'null'); if (av0) API = Object.assign(API, av0); } catch (e) {}
