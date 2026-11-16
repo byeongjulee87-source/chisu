@@ -175,7 +175,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
 var $ = function(id){ return document.getElementById(id); };
 var IS_GAS = typeof google !== 'undefined' && google.script && google.script.run;
 var SAMPLE = window.SAMPLE_DATA;
-var FILES = [], P = null, OUT = null, AHP = null, TPL = null, PREVIEW = null, KGRID = null, KINV = null, KTARGET = null;
+var FILES = [], P = null, OUT = null, AHP = null, TPL = null, PREVIEW = null, KGRID = null, KINV = null, KTARGET = null, KDBOX = null;
 function log(s){ $('log').textContent += s + '\n'; }
 function prog(p, s){ $('prog').style.display = 'block'; $('prog').firstChild.style.width = p + '%'; if (s) log(s); }
 function tick(){ return new Promise(function(r){ setTimeout(r, 20); }); }
@@ -516,8 +516,8 @@ $('priceForm').addEventListener('change', function(e){ var k = e.target.dataset.
   try { localStorage.setItem(PRICE_KEY, JSON.stringify(PRICE)); } catch (x) {}
   if (e.target.tagName === 'SELECT') priceForm(); });
 // 사이트에 내장한 공용 키(소유자 요청). 화면에 각자 키를 넣으면 그 키가 우선. 브이월드 키는 등록 주소(깃허브 사이트)에서만 동작
-var API_DEF = {vkey:'87C87907-9357-4296-BD66-4A0C31E515E2', vdomain:'https://byeongjulee87-source.github.io', ckey:'d00f232e781043e98722', csec:'3298886d4ee54027bfce'};
-var API_KEY = 'chisu-api', API = {on:true, vkey:'', vdomain:'', ckey:'', csec:''};
+var API_DEF = {vkey:'87C87907-9357-4296-BD66-4A0C31E515E2', vdomain:'https://byeongjulee87-source.github.io', ckey:'d00f232e781043e98722', csec:'3298886d4ee54027bfce', lcproxy:''};
+var API_KEY = 'chisu-api', API = {on:true, vkey:'', vdomain:'', ckey:'', csec:'', lcproxy:''};
 function apiv(k){ return API[k] || API_DEF[k] || ''; }
 try { var av0 = JSON.parse(localStorage.getItem(API_KEY) || 'null'); if (av0) API = Object.assign(API, av0); } catch (e) {}
 function apiForm(){
@@ -526,11 +526,48 @@ function apiForm(){
     '<label>브이월드 인증키<input data-a="vkey" type="password" autocomplete="off" value="' + (API.vkey || '') + '" placeholder="' + (API_DEF.vkey ? '비우면 공용 키 사용' : '') + '"></label>' +
     '<label>브이월드 등록 URL<input data-a="vdomain" value="' + dom + '" placeholder="인증키 발급 때 넣은 서비스 URL"></label>' +
     '<label>SGIS 서비스ID<input data-a="ckey" type="password" autocomplete="off" value="' + (API.ckey || '') + '" placeholder="' + (API_DEF.ckey ? '비우면 공용 키 사용' : '') + '"></label>' +
-    '<label>SGIS 보안키<input data-a="csec" type="password" autocomplete="off" value="' + (API.csec || '') + '" placeholder="' + (API_DEF.csec ? '비우면 공용 키 사용' : '') + '"></label>';
+    '<label>SGIS 보안키<input data-a="csec" type="password" autocomplete="off" value="' + (API.csec || '') + '" placeholder="' + (API_DEF.csec ? '비우면 공용 키 사용' : '') + '"></label>' +
+    '<label>토지피복 중계 URL<input data-a="lcproxy" value="' + (API.lcproxy || '') + '" placeholder="' + (API_DEF.lcproxy ? '비우면 공용 중계 사용' : '구글 스크립트 웹앱 URL(…/exec)') + '"></label>';
 }
 apiForm();
 $('apiForm').addEventListener('change', function(e){ var k = e.target.dataset.a; if (!k) return; API[k] = e.target.type === 'checkbox' ? e.target.checked : String(e.target.value).trim();
   try { localStorage.setItem(API_KEY, JSON.stringify(API)); } catch (x) {} });
+// ---- 환경부 토지피복도(세분류, WFS) 자동 불러오기 — 서버가 CORS를 막아 구글 스크립트 중계로 받음 ----
+var LC_LAYERS = ['EGIS:lv3_2025y', 'EGIS:lv3_2024y', 'EGIS:lv3_2023y'];
+function autoCover(K){
+  var px = apiv('lcproxy');
+  if (!px) { log('토지피복도 파일이 없습니다 — [자동 불러오기 설정]에 "토지피복 중계 URL"을 넣으면 환경부 토지피복도(세분류)를 자동으로 받습니다. 지금은 지구계만 씁니다.'); return Promise.resolve(false); }
+  var tf = CRS.transformer(K.crs, 'EPSG:4326'), b = K.box, m = 100;
+  var cs = [[b[0] - m, b[1] - m], [b[2] + m, b[1] - m], [b[2] + m, b[3] + m], [b[0] - m, b[3] + m]].map(tf);
+  var lo = Math.min.apply(null, cs.map(function(c){ return c[0]; })), hi = Math.max.apply(null, cs.map(function(c){ return c[0]; }));
+  var la = Math.min.apply(null, cs.map(function(c){ return c[1]; })), ha = Math.max.apply(null, cs.map(function(c){ return c[1]; }));
+  var S = 0.02, tiles = [];
+  for (var x = lo; x < hi; x += S) for (var y = la; y < ha; y += S) tiles.push([x, y, Math.min(hi, x + S), Math.min(ha, y + S)]);
+  if (tiles.length > 60) { log('⚠ 토지피복 자동 불러오기: 지구 범위가 너무 넓어(' + tiles.length + '조각) 건너뜁니다. 토지피복도 SHP를 직접 올리세요.'); return Promise.resolve(false); }
+  var feats = {}, n = 0, layer = null;
+  var one = function(L, t){
+    var u = 'https://api.mcee.go.kr/geoserver/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=' + L + '&maxFeatures=30000&srsName=EPSG:4326&outputFormat=application/json&bbox=' + t.map(function(v){ return v.toFixed(6); }).join(',') + ',EPSG:4326';
+    return AUTOINV.jsonp(px + (px.indexOf('?') >= 0 ? '&' : '?') + 'u=' + encodeURIComponent(u), 90000).then(function(d){
+      if (!d || d.error) throw new Error(d && d.error || '응답 없음');
+      (d.features || []).forEach(function(f){ if (!feats[f.id]) { feats[f.id] = f; n++; } });
+    });
+  };
+  log('환경부 토지피복도(세분류)를 지구 범위에서 불러오는 중… (' + tiles.length + '조각)');
+  var tryLayer = function(i){
+    if (i >= LC_LAYERS.length) return Promise.reject(new Error('토지피복 레이어를 찾지 못함'));
+    layer = LC_LAYERS[i]; feats = {}; n = 0;
+    var chain = one(layer, tiles[0]);
+    tiles.slice(1).forEach(function(t, k){ chain = chain.then(function(){ prog(20, '토지피복 ' + (k + 2) + '/' + tiles.length); return one(layer, t); }); });
+    return chain.then(function(){ if (!n) return tryLayer(i + 1); }, function(e){ if (/unknown|찾지/.test(e.message) && i + 1 < LC_LAYERS.length) return tryLayer(i + 1); throw e; });
+  };
+  return tryLayer(0).then(function(){
+    var fc = {type:'FeatureCollection', features:Object.keys(feats).map(function(k){ return feats[k]; })};
+    var yr = (/(\d{4})y/.exec(layer) || [])[1];
+    FILES.push({name:'환경부 토지피복도 ' + yr + ' 세분류(자동, 다각형 ' + n + '개)', fc:fc, crs:'EPSG:4326', role:'cover', cf:coverField(fc), auto:true, info:'환경부 환경공간정보서비스 WFS ' + layer});
+    show(); log('환경부 토지피복도 ' + yr + '년 세분류 ' + n + '개 다각형을 불러왔습니다.');
+    return true;
+  }).catch(function(e){ log('⚠ 토지피복 자동 불러오기 실패 — ' + e.message + ' (중계 URL 확인, 또는 토지피복도 SHP를 직접 올리기)'); return false; });
+}
 // 분석 범위(침수심 격자)만 공공 API로 조회해 K-FRM 인벤토리 보충
 function autoInventory(){
   if (!API.on || !KGRID || CUR.method !== 'kfrm') return Promise.resolve();
@@ -769,6 +806,7 @@ function buildGis(){
       var td = CRS.transformer(dcrs, target), tc = Fc ? CRS.transformer(Fc.crs, target) : null;
       var D = autoD || IO.polyRings(Fd.fc).map(function(z){ var f = {type:'Feature', properties:{d:matchDistrict(z.props[Fd.df])}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, td); })}}; f.bb = turf.bbox(f); return f; }).filter(function(f){ return f.properties.d; });
       var DB = D.reduce(function(b, d){ return [Math.min(b[0], d.bb[0]), Math.min(b[1], d.bb[1]), Math.max(b[2], d.bb[2]), Math.max(b[3], d.bb[3])]; }, [Infinity, Infinity, -Infinity, -Infinity]);
+      KDBOX = isFinite(DB[0]) ? {box:DB, crs:target} : null;
       if (Fc) IO.polyRings(Fc.fc).forEach(function(z){
         var f = {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:z.rings.map(function(r){ return mapCoords(r, tc); })}}, bb = turf.bbox(f), cv = coverName(z.props[Fc.cf]);
         if (bb[2] < DB[0] || DB[2] < bb[0] || bb[3] < DB[1] || DB[3] < bb[1]) return;
@@ -900,7 +938,12 @@ $('bRun').onclick = function(){
   (inp ? inp.file.arrayBuffer().then(function(b){ P = readInput(b, inp.name); var en = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, x){ return n && x.indexOf(n) === i; }); log('지구 ' + P.districts.length + '개 · 읍면동 ' + (en.map(function(n){ return n + (P.emds[n] ? '' : '(통계 없음)'); }).join(', ') || '없음') + ' · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (en.some(function(n){ return !P.emds[n]; })) log('  ※ 읍면동 시트에 통계 줄이 없습니다. K-FRM은 건물·인구를 자동으로 불러오므로 계산되지만, 취약인구 비율·다차원법에는 읍면동 통계(또는 KOSIS 표)가 필요합니다.'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
   .then(tick).then(function(){
     prog(15, 'GIS 처리(하도버퍼링·구획 집계) 중…');
-    return tick().then(function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } }).then(autoInventory);
+    var gis = function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } };
+    return tick().then(function(){
+      KDBOX = null; gis();
+      if (FILES.some(function(f){ return f.role === 'cover' || f.role === 'zone'; }) || !KDBOX || !API.on) return;
+      return autoCover(KDBOX).then(function(ok){ if (ok) { log('환경부 토지피복도를 넣어 구획을 다시 계산합니다.'); return tick().then(gis); } });
+    }).then(autoInventory);
   }).then(function(){
     if (!P.gis || !P.gis.length) throw new Error('침수면적이 없습니다. 측선·수치지도·지구계·토지피복을 함께 올리거나 엑셀 GIS면적 시트를 넣어 주세요.');
     prog(75, '피해액·편익·경제성 계산'); return tick();
