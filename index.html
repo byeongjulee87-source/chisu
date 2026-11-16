@@ -2071,7 +2071,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
       <p class="hint" style="margin:8px 0">단가를 넣은 공종만 계산합니다. 수량은 측점별 단면적·길이를 평균단면법으로 지구 구간(지구 시트 '구간') 만큼 합칩니다. 횡단면도는 계획빈도 단면으로 보고, 다른 빈도는 빈도 보정계수를 곱합니다.</p>
       <div class="form" id="priceForm"></div>
     </details>
-    <details class="price" id="apiBox"><summary>K-FRM 인벤토리 자동 불러오기 — 공공 API (본인 인증키, 이 브라우저에 저장)</summary>
+    <details class="price" id="apiBox"><summary>K-FRM 인벤토리 자동 불러오기 — 공공 API (공용 키 내장, 본인 키를 넣으면 그 키 우선)</summary>
       <p class="hint" style="margin:8px 0">K-FRM으로 분석할 때 건물·집계구 인구 파일이 없으면, 지구 범위만 아래 서비스에서 바로 불러옵니다.
         <b>건물</b>: 브이월드 「건축물정보」(건축물대장 주용도·구조·건축면적·사용승인일) — vworld.kr 인증키(발급 시 이 사이트 주소를 서비스 URL로 등록).
         <b>집계구 인구</b>: 통계청 SGIS 오픈API — 서비스ID·보안키. 차량은 공개 자료가 없어 제외됩니다. 키는 이 브라우저에만 저장됩니다.</p>
@@ -2374,15 +2374,18 @@ function priceForm(){
 priceForm();
 $('priceForm').addEventListener('change', function(e){ var k = e.target.dataset.p; if (!k) return; var v = String(e.target.value).replace(/,/g, '').trim(); if (v === '') delete PRICE[k]; else PRICE[k] = +v;
   try { localStorage.setItem(PRICE_KEY, JSON.stringify(PRICE)); } catch (x) {} });
+// 사이트에 내장한 공용 키(소유자 요청). 화면에 각자 키를 넣으면 그 키가 우선. 브이월드 키는 등록 주소(깃허브 사이트)에서만 동작
+var API_DEF = {vkey:'87C87907-9357-4296-BD66-4A0C31E515E2', vdomain:'https://byeongjulee87-source.github.io', ckey:'', csec:''};
 var API_KEY = 'chisu-api', API = {on:true, vkey:'', vdomain:'', ckey:'', csec:''};
+function apiv(k){ return API[k] || API_DEF[k] || ''; }
 try { var av0 = JSON.parse(localStorage.getItem(API_KEY) || 'null'); if (av0) API = Object.assign(API, av0); } catch (e) {}
 function apiForm(){
-  var dom = API.vdomain || (/^https?:/.test(location.origin) ? location.origin : '');
+  var dom = API.vdomain || (/^https?:/.test(location.origin) ? location.origin : API_DEF.vdomain);
   $('apiForm').innerHTML = '<label>자동 불러오기<input type="checkbox" data-a="on"' + (API.on ? ' checked' : '') + '></label>' +
-    '<label>브이월드 인증키<input data-a="vkey" type="password" autocomplete="off" value="' + (API.vkey || '') + '"></label>' +
+    '<label>브이월드 인증키<input data-a="vkey" type="password" autocomplete="off" value="' + (API.vkey || '') + '" placeholder="' + (API_DEF.vkey ? '비우면 공용 키 사용' : '') + '"></label>' +
     '<label>브이월드 등록 URL<input data-a="vdomain" value="' + dom + '" placeholder="인증키 발급 때 넣은 서비스 URL"></label>' +
-    '<label>SGIS 서비스ID<input data-a="ckey" type="password" autocomplete="off" value="' + (API.ckey || '') + '"></label>' +
-    '<label>SGIS 보안키<input data-a="csec" type="password" autocomplete="off" value="' + (API.csec || '') + '"></label>';
+    '<label>SGIS 서비스ID<input data-a="ckey" type="password" autocomplete="off" value="' + (API.ckey || '') + '" placeholder="' + (API_DEF.ckey ? '비우면 공용 키 사용' : '') + '"></label>' +
+    '<label>SGIS 보안키<input data-a="csec" type="password" autocomplete="off" value="' + (API.csec || '') + '" placeholder="' + (API_DEF.csec ? '비우면 공용 키 사용' : '') + '"></label>';
 }
 apiForm();
 $('apiForm').addEventListener('change', function(e){ var k = e.target.dataset.a; if (!k) return; API[k] = e.target.type === 'checkbox' ? e.target.checked : String(e.target.value).trim();
@@ -2391,7 +2394,7 @@ $('apiForm').addEventListener('change', function(e){ var k = e.target.dataset.a;
 function autoInventory(){
   if (!API.on || !KGRID || CUR.method !== 'kfrm') return Promise.resolve();
   KINV = KINV || {buildings:[], vehicles:[], population:[], farmland:[]};
-  var needB = !KINV.buildings.length && API.vkey, needP = !KINV.population.length && API.ckey && API.csec;
+  var needB = !KINV.buildings.length && apiv('vkey'), needP = !KINV.population.length && apiv('ckey') && apiv('csec');
   if (!needB && !needP) return Promise.resolve();
   var g = KGRID, pad = 30, box = [g.x0 - pad, g.y0 - pad, g.x0 + g.nx * g.cell + pad, g.y0 + g.ny * g.cell + pad], tgt = KTARGET || 'EPSG:5186';
   var to4326 = CRS.transformer(tgt, 'EPSG:4326'), from4326 = CRS.transformer('EPSG:4326', tgt), toU = CRS.transformer(tgt, 'EPSG:5179'), fromU = CRS.transformer('EPSG:5179', tgt);
@@ -2399,7 +2402,7 @@ function autoInventory(){
   var chain = Promise.resolve();
   if (needB) chain = chain.then(function(){
     log('브이월드 건축물정보에서 지구 범위 건물을 불러오는 중…');
-    return AUTOINV.buildings({box:box, tf:to4326, back:from4326, key:API.vkey, domain:API.vdomain || (/^https?:/.test(location.origin) ? location.origin : ''), centroid:KFRM.centroid, prog:function(s){ $('prog').firstChild.title = s; }})
+    return AUTOINV.buildings({box:box, tf:to4326, back:from4326, key:apiv('vkey'), domain:API.vdomain || (/^https?:/.test(location.origin) ? location.origin : API_DEF.vdomain), centroid:KFRM.centroid, prog:function(s){ $('prog').firstChild.title = s; }})
       .then(function(feats){ var B = KFRM.buildings(feats, CUR.defStr); KINV.buildings = KINV.buildings.concat(B.list);
         log('브이월드 건물 ' + B.list.length.toLocaleString() + '동 불러옴' + (B.skip ? ' (용도·면적 없음 ' + B.skip + '동 제외)' : '')); })
       .catch(function(e){ log('⚠ 건물 자동 불러오기 실패 — ' + e.message + ' (인증키·등록 URL 확인, 또는 건물 SHP를 직접 넣기)'); });
@@ -2408,7 +2411,7 @@ function autoInventory(){
     log('SGIS에서 지구 범위 집계구 인구를 불러오는 중…');
     var ev = Object.keys(P.emds || {}).map(function(k){ return P.emds[k]; }).filter(function(e){ return e.population > 0 && e.vulnerable > 0; });
     var vul = ev.length ? ev.reduce(function(s, e){ return s + e.vulnerable; }, 0) / ev.reduce(function(s, e){ return s + e.population; }, 0) : 0;
-    return AUTOINV.population({box:box, toU:toU, fromU:fromU, ckey:API.ckey, csec:API.csec, vul:vul, area:area})
+    return AUTOINV.population({box:box, toU:toU, fromU:fromU, ckey:apiv('ckey'), csec:apiv('csec'), vul:vul, area:area})
       .then(function(r){ KINV.population = KINV.population.concat(KFRM.population(r.feats.filter(function(f){ return f.rings && f.rings.length; })));
         log('SGIS 집계구 ' + r.areas + '개 중 ' + (r.areas - r.missing) + '개 인구 불러옴' + (r.year ? ' (' + r.year + '년)' : '') + (vul ? ', 취약인구 비율 ' + (vul * 100).toFixed(1) + '%(읍면동 통계)' : ', 취약인구 비율 없음 — 읍면동 시트·통계연보에 취약인구를 넣으면 반영')); })
       .catch(function(e){ log('⚠ 집계구 인구 자동 불러오기 실패 — ' + e.message + ' (SGIS 서비스ID·보안키 확인)'); });
