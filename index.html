@@ -2099,8 +2099,9 @@ svg.bc text{fill:var(--mute);font-size:11px}
       <input type="file" id="pick" multiple accept=".xlsx,.xls,.csv,.zip,.dxf,.hwpx" hidden>
     </div>
     <div class="need" id="need"></div>
-    <details class="price" id="priceBox"><summary>공사비 단가 — 횡단면도를 넣으면 공종별 수량 × 단가로 공사비 계산 (이 브라우저에 저장)</summary>
-      <p class="hint" style="margin:8px 0">단가를 넣은 공종만 계산합니다. 수량은 측점별 단면적·길이를 평균단면법으로 지구 구간(지구 시트 '구간') 만큼 합칩니다. 횡단면도는 계획빈도 단면으로 보고, 다른 빈도는 빈도 보정계수를 곱합니다.</p>
+    <details class="price" id="priceBox"><summary>공사비 단가 — 기본: 2026 재해복구 단가(자연재난조사 및 복구계획수립 편람) · 이 브라우저에 저장</summary>
+      <p class="hint" style="margin:8px 0">엑셀에 공사비가 없으면 지구 연장 × 편람 하천제방 m당 복구단가(축제·보축)로 공사비를 냅니다. 횡단면도 DXF를 넣으면 공종 수량(평균단면법, 지구 '구간') × 공종 단가가 우선합니다.
+        편람 단가에는 부대공·자재대·부가세·관리비·이윤이 포함되어 부대공·제경비를 더하지 않습니다(편람 p.106). 횡단면도는 계획빈도 단면으로 보고 다른 빈도는 빈도 보정계수를 곱합니다. 편람에 없는 공종(절토·터파기 등)은 직접 넣으세요.</p>
       <div class="form" id="priceForm"></div>
     </details>
     <details class="price" id="apiBox"><summary>K-FRM 인벤토리 자동 불러오기 — 공공 API (공용 키 내장, 본인 키를 넣으면 그 키 우선)</summary>
@@ -2361,7 +2362,7 @@ function headerMap(rows, keys){
   return null;
 }
 // ---- 공사비 단가: 연장(m) × 공종별 m당 단가(천원) × 빈도 보정계수 + 부대공·제경비 비율 + 보상비 ----
-var UNIT_DEF = {levee:{축제공:69, 호안공:339, 보상비:56}, reinf:{축제공:16, 호안공:340, 보상비:0}, revet:{축제공:0, 호안공:340, 보상비:0}, sub:20, gen:40,
+var UNIT_DEF = {levee:{축제공:3884.476, 호안공:0, 보상비:56}, reinf:{축제공:0, 호안공:1118.023, 보상비:0}, revet:{축제공:0, 호안공:1118.023, 보상비:0}, sub:0, gen:0,
   factor:{20:0.77, 30:0.877, 50:1, 80:1.114, 100:1.168, 200:1.318}};
 function readUnit(wb){
   var sn = wb.SheetNames.find(function(x){ return /^단가/.test(x.replace(/\s/g, '')); }); if (!sn) return null;
@@ -2397,15 +2398,40 @@ function costByUnit(d, T, U){   // 백만원
 var XITEMS = [['성토','㎥','축제공'],['절토','㎥','축제공'],['층따기','㎥','축제공'],['표토제거(제방저면)','㎡','축제공'],['표토제거(유용구간)','㎡','축제공'],
   ['성토면고르기','㎡','축제공'],['절토면고르기','㎡','축제공'],['거적덮기','㎡','축제공'],
   ['터파기','㎥','호안공'],['되메우기','㎥','호안공'],['사석부설','㎥','호안공'],['식생호안블럭','㎡','호안공'],['필터매트','㎡','호안공']];
-var PRICE_KEY = 'chisu-unit-prices', PRICE = {sub:20, gen:40, comp:56};
+// 「2026년 자연재난조사 및 복구계획수립 편람」 Ⅳ 자연재난 복구비용 산정기준(단가) — 공공시설 복구단가(원). 부대공·자재대·부가세·관리비·이윤 포함(편람 p.106)
+var PY = {
+  levee: {  // 하천제방축조 m당: [구분][둑마루][형식]
+    '국가하천': {사리부설:{블럭:8094196, 돌망태:9041964, 사석:7955702}, 콘크리트포장:{블럭:8495343, 돌망태:9443111, 사석:8356849}},
+    '지방하천(대규모)': {사리부설:{블럭:5642152, 돌망태:5998486, 사석:5118835}, 콘크리트포장:{블럭:5934624, 돌망태:6290958, 사석:5411307}},
+    '지방하천(중소규모)': {사리부설:{블럭:3884476, 돌망태:4245247, 사석:3361159}, 콘크리트포장:{블럭:4111427, 돌망태:4472198, 사석:3588110}},
+    '소하천': {사리부설:{블럭:2240024, 돌망태:2240024, 사석:2240024}, 콘크리트포장:{블럭:2637160, 돌망태:2637160, 사석:2637160}}},
+  reinf: {'국가하천': {사리부설:2992834, 콘크리트포장:3393981}, '지방하천(대규모)': {사리부설:2008426, 콘크리트포장:2300898},
+    '지방하천(중소규모)': {사리부설:1118023, 콘크리트포장:1344974}, '소하천': {사리부설:1044060, 콘크리트포장:1441196}},
+  item: {'성토':41010, '사석부설':91094, '식생호안블럭':202807, '필터매트':3804, '거적덮기':3513}   // 하천시설물·소하천 공종 단가
+};
+var PRICE_KEY = 'chisu-unit-prices', PRICE = {basis:'py', river:'지방하천(중소규모)', type:'블럭', crest:'사리부설', sub:20, gen:40, comp:56};
+function pyMode(){ return PRICE.basis !== 'own'; }
+function priceOf(k){ return PRICE[k] > 0 ? PRICE[k] : pyMode() ? (PY.item[k] || 0) : 0; }
+function rates(){ return pyMode() ? {sub:0, gen:0} : {sub:PRICE.sub || 0, gen:PRICE.gen || 0}; }
+function pyLevee(){ return PY.levee[PRICE.river][PRICE.crest][PRICE.type]; }
+function pyReinf(){ return PY.reinf[PRICE.river][PRICE.crest]; }
 try { var pv0 = JSON.parse(localStorage.getItem(PRICE_KEY) || 'null'); if (pv0) PRICE = Object.assign(PRICE, pv0); } catch (e) {}
 function priceForm(){
-  $('priceForm').innerHTML = XITEMS.map(function(x){ return '<label>' + x[0] + ' (원/' + x[1] + ')<input data-p="' + x[0] + '" inputmode="decimal" value="' + (PRICE[x[0]] || '') + '" placeholder="단가"></label>'; }).join('') +
-    '<label>부대공률 (%)<input data-p="sub" value="' + PRICE.sub + '"></label><label>제경비율 (%)<input data-p="gen" value="' + PRICE.gen + '"></label><label>보상비 (천원/m, 지구 연장)<input data-p="comp" value="' + PRICE.comp + '"></label>';
+  var sel = function(k, opts, lab){ return '<label>' + lab + '<select data-p="' + k + '">' + opts.map(function(o){ return '<option value="' + o[0] + '"' + (String(PRICE[k]) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>'; };
+  var py = pyMode();
+  $('priceForm').innerHTML = sel('basis', [['py','2026 재해복구 단가(편람, 부대공·제경비 포함)'],['own','직접 입력(부대공·제경비 별도)']], '단가 기준') +
+    (py ? sel('river', Object.keys(PY.levee).map(function(k){ return [k, k]; }), '하천 구분') + sel('type', [['블럭','축제+블럭'],['돌망태','축제+블럭+돌망태'],['사석','축제+블럭+사석']], '제방 형식') +
+      sel('crest', [['사리부설','사리부설'],['콘크리트포장','콘크리트포장']], '둑마루') +
+      '<label>축제 m당 (원)<input disabled value="' + pyLevee().toLocaleString() + '"></label><label>보축·호안 m당 (원)<input disabled value="' + pyReinf().toLocaleString() + '"></label>' : '') +
+    XITEMS.map(function(x){ var d = py && PY.item[x[0]]; return '<label>' + x[0] + ' (원/' + x[1] + ')<input data-p="' + x[0] + '" inputmode="decimal" value="' + (PRICE[x[0]] || '') + '" placeholder="' + (d ? '편람 ' + d.toLocaleString() : '단가') + '"></label>'; }).join('') +
+    (py ? '' : '<label>부대공률 (%)<input data-p="sub" value="' + PRICE.sub + '"></label><label>제경비율 (%)<input data-p="gen" value="' + PRICE.gen + '"></label>') +
+    '<label>보상비 (천원/m, 지구 연장)<input data-p="comp" value="' + PRICE.comp + '"></label>';
 }
 priceForm();
-$('priceForm').addEventListener('change', function(e){ var k = e.target.dataset.p; if (!k) return; var v = String(e.target.value).replace(/,/g, '').trim(); if (v === '') delete PRICE[k]; else PRICE[k] = +v;
-  try { localStorage.setItem(PRICE_KEY, JSON.stringify(PRICE)); } catch (x) {} });
+$('priceForm').addEventListener('change', function(e){ var k = e.target.dataset.p; if (!k) return; var v = String(e.target.value).replace(/,/g, '').trim();
+  if (e.target.tagName === 'SELECT') PRICE[k] = v; else if (v === '') delete PRICE[k]; else PRICE[k] = +v;
+  try { localStorage.setItem(PRICE_KEY, JSON.stringify(PRICE)); } catch (x) {}
+  if (e.target.tagName === 'SELECT') priceForm(); });
 // 사이트에 내장한 공용 키(소유자 요청). 화면에 각자 키를 넣으면 그 키가 우선. 브이월드 키는 등록 주소(깃허브 사이트)에서만 동작
 var API_DEF = {vkey:'87C87907-9357-4296-BD66-4A0C31E515E2', vdomain:'https://byeongjulee87-source.github.io', ckey:'', csec:''};
 var API_KEY = 'chisu-api', API = {on:true, vkey:'', vdomain:'', ckey:'', csec:''};
@@ -2450,7 +2476,7 @@ function autoInventory(){
   });
   return chain;
 }
-function hasPrice(){ return XITEMS.some(function(x){ return PRICE[x[0]] > 0; }); }
+function hasPrice(){ return pyMode() || XITEMS.some(function(x){ return PRICE[x[0]] > 0; }); }
 // 측점 문자열 → m : 'No.6+20'은 1No.=50m, '3+139'처럼 + 뒤가 세 자리면 km
 function stM(s){ s = String(s || ''); var m = /(No\.?\s*)?(\d+)\s*\+\s*(\d+(?:\.\d+)?)/i.exec(s); if (!m) { var n = /No\.?\s*(\d+)/i.exec(s); return n ? +n[1] * 50 : null; }
   return (m[1] || m[3].split('.')[0].length < 3) && !(m[3].split('.')[0].length === 3 && !m[1]) ? +m[2] * 50 + +m[3] : +m[2] * 1000 + +m[3]; }
@@ -2483,14 +2509,28 @@ function xsecCost(p, U){   // 지구별 수량·공사비(백만원), U: 빈도 
     var sides = /좌/.test(d.bank) ? ['L'] : /우/.test(d.bank) ? ['R'] : ['L','R'], Q = {}, any = false;
     XITEMS.forEach(function(x){ Q[x[0]] = sides.reduce(function(t, sd){ return t + integ(R[sd], rg[0], rg[1], x[0]); }, 0); if (Q[x[0]] > 0) any = true; });
     if (!any) return;
-    var won = {축제공:0, 호안공:0}; XITEMS.forEach(function(x){ won[x[2]] += Q[x[0]] * (PRICE[x[0]] || 0); });
+    var won = {축제공:0, 호안공:0}; XITEMS.forEach(function(x){ won[x[2]] += Q[x[0]] * priceOf(x[0]); });
     p.xsecQ[d.name] = {range:rg, Q:Q};
     var len = (d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0) || (rg[1] - rg[0]);
     var kD = factorOf(U, d.designT) || 1;
     (CUR.Ts || GUIDE.Ts).forEach(function(T){
       var k = factorOf(U, T) / kD, c = {축제공:won.축제공 / 1e6 * k, 호안공:won.호안공 / 1e6 * k, 구조물공:d.struct || 0, 보상비:len * (PRICE.comp || 0) / 1000};
-      c.부대공 = (c.축제공 + c.호안공 + c.구조물공) * (PRICE.sub || 0) / 100; c.제경비 = (c.축제공 + c.호안공 + c.구조물공 + c.부대공) * (PRICE.gen || 0) / 100;
+      var rr = rates(); c.부대공 = (c.축제공 + c.호안공 + c.구조물공) * rr.sub / 100; c.제경비 = (c.축제공 + c.호안공 + c.구조물공 + c.부대공) * rr.gen / 100;
       (p.costs[d.name] = p.costs[d.name] || {})[T] = c;
+    });
+    made++;
+  });
+  return made;
+}
+function pyCost(p, U){   // 백만원
+  var made = 0, lv = pyLevee(), rf = pyReinf();
+  p.districts.forEach(function(d){
+    if (p.costs[d.name]) return;
+    var L1 = d.lenLevee || 0, L2 = d.lenReinf || 0, L3 = d.lenRevet || 0; if (!(L1 + L2 + L3)) return;
+    var kD = factorOf(U, d.designT) || 1;
+    (CUR.Ts || GUIDE.Ts).forEach(function(T){
+      var k = factorOf(U, T) / kD;
+      (p.costs[d.name] = p.costs[d.name] || {})[T] = {축제공:L1 * lv / 1e6 * k, 호안공:(L2 + L3) * rf / 1e6 * k, 구조물공:d.struct || 0, 부대공:0, 제경비:0, 보상비:(L1 + L2 + L3) * (PRICE.comp || 0) / 1000};
     });
     made++;
   });
@@ -2525,6 +2565,7 @@ function readInput(buf, name){
     if (!hasPrice()) p.costNote = '⚠ 횡단면도가 있지만 공종 단가가 비어 있습니다(자료 올리기 아래 "공사비 단가"). ';
     else { xn = xsecCost(p, U || UNIT_DEF); p.costNote = '횡단면도 수량 × 단가로 공사비 산정: ' + xn + '개 지구'; }
   }
+  if (!U && pyMode()) { var pn = pyCost(p, UNIT_DEF); if (pn) p.costNote = (p.costNote ? p.costNote + ' · ' : '') + '2026 재해복구 단가(편람, ' + PRICE.river + ' ' + PRICE.crest + ' 축제+' + PRICE.type + ' ' + pyLevee().toLocaleString() + '원/m, 보축 ' + pyReinf().toLocaleString() + '원/m)로 ' + pn + '개 지구 공사비 산정'; }
   if (U) {
     var Ts = (CUR.Ts || GUIDE.Ts), made = 0;
     p.districts.forEach(function(d){ Ts.forEach(function(T){ if ((p.costs[d.name] || {})[T]) return; (p.costs[d.name] = p.costs[d.name] || {})[T] = costByUnit(d, T, U); made++; }); });
@@ -2781,7 +2822,7 @@ $('bTpl').onclick = function(){
     Object.keys(p.emds).map(function(n){ var e = p.emds[n]; return [n, e.areaHa, e.households, e.population, e.vulnerable || ''].concat(LANDK.map(function(k){ return e.land[k] || 0; }), HOUSEK.map(function(k){ return e.houses[k] || 0; }), CROPK.map(function(k){ return e.crops[k] || 0; }), WORKK.map(function(k){ return e.workers[k] || 0; })); })));
   var D = UNIT_DEF, FT = Object.keys(D.factor).map(Number);
   add('단가', [['항목','축제 구간','보축 구간','호안 구간','단위'],['축제공', D.levee.축제공, D.reinf.축제공, D.revet.축제공, '천원/m'],['호안공', D.levee.호안공, D.reinf.호안공, D.revet.호안공, '천원/m'],['보상비', D.levee.보상비, D.reinf.보상비, D.revet.보상비, '천원/m'],[],
-    ['부대공률', D.sub, '', '', '% (축제공+호안공+구조물공)'],['제경비율', D.gen, '', '', '% (직접공사비+부대공)'],[],['빈도','보정계수','','','축제공·호안공에 곱함(50년=1)']].concat(FT.map(function(T){ return [T, D.factor[T]]; })).concat([[],['※ 기본값은 기존 하천기본계획 공사비 실적(50년, 지구 중앙값)입니다. 회사·과업 단가로 바꾸면 공사비 시트가 다시 계산됩니다.']]));
+    ['부대공률', D.sub, '', '', '% (축제공+호안공+구조물공)'],['제경비율', D.gen, '', '', '% (직접공사비+부대공)'],[],['빈도','보정계수','','','축제공·호안공에 곱함(50년=1)']].concat(FT.map(function(T){ return [T, D.factor[T]]; })).concat([[],['※ 기본값은 「2026년 자연재난조사 및 복구계획수립 편람」 Ⅳ 복구단가 — 지방하천(중소규모) 하천제방축조 사리부설 축제+블럭 3,884,476원/m, 보축 1,118,023원/m. 부대공·자재대·부가세·관리비·이윤이 단가에 포함되어 부대공률·제경비율 0%. 보상비는 기존 과업 실적(56천원/m). 다른 구분·회사 단가로 바꾸면 공사비 시트가 다시 계산됩니다.']]));
   // 공사비: 지구 시트(행 2~)를 수식으로 참조 — 지구를 더 붙여넣어도 40행까지 자동
   var ws = XLSX.utils.aoa_to_sheet([['지구명','빈도(년)'].concat(COSTK.map(function(k){ return k + '(백만원)'; }))]), r = 1, Ts = (CUR.Ts || GUIDE.Ts), fr = '$A$' + 10 + ':$B$' + (9 + FT.length);
   for (var g = 2; g <= 41; g++) Ts.forEach(function(T){
@@ -2797,7 +2838,7 @@ $('bTpl').onclick = function(){
   });
   ws['!ref'] = 'A1:H' + r; XLSX.utils.book_append_sheet(wb, ws, '공사비');
   add('홍수위', [['측점','20년','30년','50년','80년','100년','200년'],['0+000','','','','','',''],['0+050','','','','','','']]);
-  add('작성요령', [['시트','작성 방법'],['지구','"1.1 하천개수계획 현황" 표를 그대로 붙여넣기(머리글 2줄 가능)'],['읍면동','통계연보(세대·인구·지목면적·종사자 A~O), 주택총조사(주택유형별 호수), 농산물 생산면적. KOSIS에서 받은 읍면동별 표(엑셀·CSV)를 화면에 같이 끌어놓으면 빈칸을 자동으로 채움 — 이 시트는 비워 둬도 됨'],['공사비','자동 계산(수식): 지구 시트 연장 × 단가 시트 m당 단가 × 빈도 보정계수, 부대공·제경비는 비율, 구조물공은 지구 시트 값. 실제 개략사업비가 있으면 값으로 덮어써도 됨. 횡단면도 DXF를 넣고 화면의 "공사비 단가"에 공종 단가를 넣으면 공종 수량 × 단가가 우선(이 시트는 비워 둠)'],['단가','공종별 m당 단가(천원)·부대공률·제경비율·빈도 보정계수. 기본값은 기존 과업 실적이므로 과업 단가로 바꿔 쓰기'],['홍수위','개수 전 측점별 홍수위(EL.m). 측선 SHP에 빈도별 홍수위 필드가 있으면 비워도 됨'],['GIS면적','(선택) 이미 계산한 지구·빈도·침수심·토지피복 면적이 있으면 넣기 — 하도버퍼링 생략(다차원법만 가능)'],['K-FRM','건물·집계구 인구·차량·농경지 SHP(zip)를 화면에 함께 끌어놓기. 인구 인벤토리가 없으면 읍면동 인구·취약인구를 주거지역(대지)에 나눠 씀'],['종사자 A~O','A 농림 B 어업 C 광업 D 제조 E 전기가스수도 F 건설 G 도소매 H 숙박음식 I 운수창고통신 J 금융보험 K 부동산사업서비스 L 공공행정 M 교육 N 보건사회복지 O 기타서비스']]);
+  add('작성요령', [['시트','작성 방법'],['지구','"1.1 하천개수계획 현황" 표를 그대로 붙여넣기(머리글 2줄 가능)'],['읍면동','통계연보(세대·인구·지목면적·종사자 A~O), 주택총조사(주택유형별 호수), 농산물 생산면적. KOSIS에서 받은 읍면동별 표(엑셀·CSV)를 화면에 같이 끌어놓으면 빈칸을 자동으로 채움 — 이 시트는 비워 둬도 됨'],['공사비','자동 계산(수식): 지구 시트 연장 × 단가 시트 m당 단가 × 빈도 보정계수, 부대공·제경비는 비율, 구조물공은 지구 시트 값. 실제 개략사업비가 있으면 값으로 덮어써도 됨. 횡단면도 DXF를 넣고 화면의 "공사비 단가"에 공종 단가를 넣으면 공종 수량 × 단가가 우선(이 시트는 비워 둠)'],['단가','공종별 m당 단가(천원)·부대공률·제경비율·빈도 보정계수. 기본값은 2026 재해복구 단가(편람, 지방하천 중소규모) — 국가하천·소하천 등은 화면의 공사비 단가에서 고르거나 이 시트를 바꿔 쓰기'],['홍수위','개수 전 측점별 홍수위(EL.m). 측선 SHP에 빈도별 홍수위 필드가 있으면 비워도 됨'],['GIS면적','(선택) 이미 계산한 지구·빈도·침수심·토지피복 면적이 있으면 넣기 — 하도버퍼링 생략(다차원법만 가능)'],['K-FRM','건물·집계구 인구·차량·농경지 SHP(zip)를 화면에 함께 끌어놓기. 인구 인벤토리가 없으면 읍면동 인구·취약인구를 주거지역(대지)에 나눠 씀'],['종사자 A~O','A 농림 B 어업 C 광업 D 제조 E 전기가스수도 F 건설 G 도소매 H 숙박음식 I 운수창고통신 J 금융보험 K 부동산사업서비스 L 공공행정 M 교육 N 보건사회복지 O 기타서비스']]);
   saveWb(wb, '치수경제성_입력양식.xlsx');
 };
 
@@ -2857,7 +2898,7 @@ $('bXls').onclick = function(){
   var ec = [['지구명','빈도','총사업비','잔존가치','유지관리비/년','편익현가','비용현가','B/C','NPV','IRR(%)']]; res.forEach(function(r){ Ts.forEach(function(T){ var e = r.econ[T]; if (e) ec.push([r.district.name, T, e.total, e.residual, e.om, e.benefitPV, e.costPV, e.BC, e.NPV, e.IRR * 100]); }); }); add('빈도별 경제성', ec);
   if (P.settings.method === 'kfrm') add('K-FRM 기준', [['항목','값'],['산정법','K-FRM 정량적 홍수위험평가(기술보고서 2023, K-CDMS 원단위 2020)'],['가격기준년도', P.settings.priceYear],['물가 환산(2020→기준년)', P.settings.cpiF || ''],['농작물 침수기간', KFRM.DURATIONS[P.settings.duration || 0]],['단독주택 구조(정보 없을 때)', P.settings.defStr],['공공시설 피해 비율계수', KFRM.PUBLIC],['사상자 원단위(천원/인, 2020)', KFRM.LIFE.unit / 1000],['이재민 발생률(명/PAR)', KFRM.LIFE.evacRate],['대피일수', KFRM.LIFE.evacDays],['농경지 피해원단위(원/㎡, 2020)', KFRM.FARM_UNIT]]);
   if (P.xsecQ && Object.keys(P.xsecQ).length) { var xq = [['지구명','구간 시작(m)','구간 끝(m)','공종','수량','단위','단가(원)','금액(백만원)']];
-    Object.keys(P.xsecQ).forEach(function(n){ var o = P.xsecQ[n]; XITEMS.forEach(function(x){ var q = o.Q[x[0]]; if (q > 0) xq.push([n, o.range[0], o.range[1], x[0] + '(' + x[2] + ')', Math.round(q * 100) / 100, x[1], PRICE[x[0]] || 0, q * (PRICE[x[0]] || 0) / 1e6]); }); });
+    Object.keys(P.xsecQ).forEach(function(n){ var o = P.xsecQ[n]; XITEMS.forEach(function(x){ var q = o.Q[x[0]]; if (q > 0) xq.push([n, o.range[0], o.range[1], x[0] + '(' + x[2] + ')', Math.round(q * 100) / 100, x[1], priceOf(x[0]), q * priceOf(x[0]) / 1e6]); }); });
     add('횡단면 수량·공사비', xq); }
   add('투자우선순위', [['순위','지구명','B/C','B/C배점','PFD','장기간위험도','생태자연도','지역낙후도','통합지표']].concat(AHP.rows.slice().sort(function(a, b){ return a.rank - b.rank; }).map(function(a){ return [a.rank, a.name, a.BC, a.sBC, a.sPFD, a.sRisk, a.sEco, a.sLag, a.score]; })));
   var as = [['읍면동','건물','건물내용물','논작물','밭작물','유형자산','재고자산']]; Object.keys(OUT.assets).forEach(function(n){ var a = OUT.assets[n]; as.push([n, a.buildingTotal, a.contents, a.paddy, a.field, a.tangible, a.stock]); }); add('자산가치', as);
