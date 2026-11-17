@@ -227,7 +227,7 @@ var KFRM = (function () {
     var A = {}, Ts = o.Ts, ca = G.cell * G.cell, du = Math.max(0, Math.min(3, o.duration || 0));
     var acc = function (d, T) {
       var k = d + '|' + T;
-      return A[k] || (A[k] = { wet: [0, 0, 0, 0, 0], cover: {}, bStrRes: 0, bStrNon: 0, bConRes: 0, bConNon: 0, nBldg: 0, nBldgRes: 0, veh: 0, nVeh: 0, cas: 0, par: 0, evacN: 0, crop: 0, farm: 0, vulPar: 0 });
+      return A[k] || (A[k] = { wet: [0, 0, 0, 0, 0], cover: {}, bStrRes: 0, bStrNon: 0, bConRes: 0, bConNon: 0, nBldg: 0, nBldgRes: 0, veh: 0, nVeh: 0, cas: 0, par: 0, evacN: 0, crop: 0, farm: 0, vulPar: 0, bExp: 0, vehVal: 0, vehDmgN: 0, casGen: 0, casVul: 0, cropA: 0, cropC: 0, cropN: 0, farmA: 0 });
     };
     var at = function (x, y) { var i = Math.floor((x - G.x0) / G.cell), j = Math.floor((y - G.y0) / G.cell); return i < 0 || j < 0 || i >= G.nx || j >= G.ny ? -1 : j * G.nx + i; };
     var note = { bldgIn: 0, bldgOut: 0, valueRes: 0, valueNon: 0 };
@@ -249,7 +249,9 @@ var KFRM = (function () {
       if (res) note.valueRes += sv + cv; else note.valueNon += sv + cv;
       var sd = det ? SD[b.str] : SD[b.use], cd = CD[b.use];
       Ts.forEach(function (T) {
-        var d = G.depth[T][idx], inner = d - bu[3]; if (!(d > 0) || !(inner > 0)) return;
+        var d = G.depth[T][idx], inner = d - bu[3]; if (!(d > 0)) return;
+        acc(dist, T).bExp++;                                   // 위험노출 건물(대지가 침수)
+        if (!(inner > 0)) return;
         var k = bin03(inner), a = acc(dist, T), ds = sv * sd[k] / 100, dc = cv * cd[k] / 100;
         if (res) { a.bStrRes += ds; a.bConRes += dc; a.nBldgRes++; } else { a.bStrNon += ds; a.bConNon += dc; }
         a.nBldg++;
@@ -270,12 +272,12 @@ var KFRM = (function () {
     // 2) 차량
     spread(inv.vehicles, function (q, fr, d, a) {
       var k = bin03(d);
-      for (var g = 0; g < 3; g++) { a.veh += q.v[g] * cpiF * fr * VD[g][k] / 100; a.nVeh += q.n[g] * fr; }
+      for (var g = 0; g < 3; g++) { a.veh += q.v[g] * cpiF * fr * VD[g][k] / 100; a.nVeh += q.n[g] * fr; a.vehVal += q.v[g] * cpiF * fr; a.vehDmgN += q.n[g] * fr * VD[g][k] / 100; }
     });
     // 3) 인적피해: 집계구 인구 인벤토리 → 없으면 읍면동 인구를 주거지역(대지)에 배분
     var popFn = function (vul, gen, d, a) {
       var h = d < 1 ? 0 : 1;
-      a.cas += vul * LIFE.vul[h] + gen * LIFE.gen[h]; a.par += vul + gen; a.vulPar += vul; a.evacN += (vul + gen) * LIFE.evacRate;
+      a.cas += vul * LIFE.vul[h] + gen * LIFE.gen[h]; a.casVul += vul * LIFE.vul[h]; a.casGen += gen * LIFE.gen[h]; a.par += vul + gen; a.vulPar += vul; a.evacN += (vul + gen) * LIFE.evacRate;
     };
     if (inv.population && inv.population.length) spread(inv.population, function (q, fr, d, a) { popFn(q.vul * fr, q.gen * fr, d, a); });
     else if (o.emdOf) {
@@ -288,10 +290,11 @@ var KFRM = (function () {
       }
     }
     // 4) 농업: 농경지 인벤토리(필지별 작물면적) → 없으면 토지피복 논=논벼, 밭=밭작물 7종 평균
-    var cropLoss = function (name, area10a, d) { var c = CROP[name]; return area10a * (c[0] + c[1]) * cpiF * c[2][bin4(d) * 4 + du] / 100; };
+    // 농작물: 생산비 매몰비용(c[0])·순수익손해(c[1])를 따로 모음 (a 주면 누적)
+    var cropLoss = function (name, area10a, d, a) { var c = CROP[name], r = cpiF * c[2][bin4(d) * 4 + du] / 100, sc = area10a * c[0] * r, sn = area10a * c[1] * r; if (a) { a.cropC += sc; a.cropN += sn; } return sc + sn; };
     if (inv.farmland && inv.farmland.length) spread(inv.farmland, function (q, fr, d, a) {
-      Object.keys(q.crops).forEach(function (n) { a.crop += cropLoss(n, q.crops[n] * fr / 1000, d); });
-      if (d >= 1) a.farm += ca * Math.min(1, q.cropArea / q.area || 1) * FARM_UNIT * cpiF;
+      Object.keys(q.crops).forEach(function (n) { a.crop += cropLoss(n, q.crops[n] * fr / 1000, d, a); a.cropA += q.crops[n] * fr; });
+      if (d >= 1) { var fa = ca * Math.min(1, q.cropArea / q.area || 1); a.farm += fa * FARM_UNIT * cpiF; a.farmA += fa; }
     });
     else for (var c3 = 0; c3 < G.zid.length; c3++) {
       var z3 = G.zid[c3]; if (z3 < 0) continue;
@@ -299,8 +302,10 @@ var KFRM = (function () {
       Ts.forEach(function (T) {
         var d = G.depth[T][c3]; if (!(d > 0)) return;
         var a = acc(zc.district, T);
-        a.crop += cl === '논' ? cropLoss('논벼', ca / 1000, d) : FIELD_CROPS.reduce(function (s, n) { return s + cropLoss(n, ca / 1000, d); }, 0) / FIELD_CROPS.length;
-        if (d >= 1) a.farm += ca * FARM_UNIT * cpiF;
+        if (cl === '논') a.crop += cropLoss('논벼', ca / 1000, d, a);
+        else { var t0 = { cropC: 0, cropN: 0 }; a.crop += FIELD_CROPS.reduce(function (s, n) { return s + cropLoss(n, ca / 1000, d, t0); }, 0) / FIELD_CROPS.length; a.cropC += t0.cropC / FIELD_CROPS.length; a.cropN += t0.cropN / FIELD_CROPS.length; }
+        a.cropA += ca;
+        if (d >= 1) { a.farm += ca * FARM_UNIT * cpiF; a.farmA += ca; }
       });
     }
     // 5) 지구·빈도별 정리 (백만원)
@@ -319,7 +324,9 @@ var KFRM = (function () {
         residential: resid, nonresidential: nonres, industry: nonres + veh, agriculture: agri, general: priv,
         lifeOnly: life, evac: evac, life: life + evac, public: pub, total: priv + life + evac + pub,
         casualties: a.cas, deaths: a.cas * LIFE.death, injuries: a.cas * (1 - LIFE.death), evacuees: a.evacN, par: a.par,
-        nBldg: a.nBldg, nBldgRes: a.nBldgRes, nVeh: a.nVeh
+        nBldg: a.nBldg, nBldgRes: a.nBldgRes, nVeh: a.nVeh,
+        bExp: a.bExp, vehVal: a.vehVal / M, vehDmgN: a.vehDmgN, casGen: a.casGen, casVul: a.casVul,
+        cropArea: a.cropA, cropCost: a.cropC / M, cropNet: a.cropN / M, farmArea: a.farmA
       };
     });
     return { byKey: out, note: note, cpiF: cpiF };
@@ -327,7 +334,7 @@ var KFRM = (function () {
   function zero() {
     return { areaHa: 0, haByDepth: [0, 0, 0, 0, 0], areaRes: 0, areaAgr: 0, areaInd: 0, building: 0, contents: 0, vehicle: 0, crop: 0, farmland: 0, tangible: 0, stock: 0,
       residential: 0, nonresidential: 0, industry: 0, agriculture: 0, general: 0, lifeOnly: 0, evac: 0, life: 0, public: 0, total: 0,
-      casualties: 0, deaths: 0, injuries: 0, evacuees: 0, par: 0, nBldg: 0, nBldgRes: 0, nVeh: 0 };
+      casualties: 0, deaths: 0, injuries: 0, evacuees: 0, par: 0, nBldg: 0, nBldgRes: 0, nVeh: 0, bExp: 0, vehVal: 0, vehDmgN: 0, casGen: 0, casVul: 0, cropArea: 0, cropCost: 0, cropNet: 0, farmArea: 0 };
   }
   return { compute: compute, zero: zero, buildings: buildings, vehicles: vehicles, vehiclesFromCount: vehiclesFromCount, population: population, farmland: farmland, centroid: centroid, polyArea: polyArea,
     useOf: useOf, strOf: strOf, DURATIONS: DURATIONS, PUBLIC: PUBLIC, LIFE: LIFE, BU: BU, CROP: CROP, FARM_UNIT: FARM_UNIT };

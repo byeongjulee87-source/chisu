@@ -189,13 +189,13 @@ var SET = [
   ['cityTypeGoods','도시유형(가정용품)','city'],['cityTypeLife','도시유형(인명·이재민)','city'],['industrySido','산업자산 시도','sido'],['priceYear','가격기준년도','n'],
   ['pfdCode','PFD 단위구역 코드','s'],['pfdArea','PFD 단위구역명','s'],['pfdGrade','PFD 등급','s'],['pfdValue','PFD 값','n'],
   ['ecoGrade','생태자연도 등급','s'],['lagRank','지역낙후도 순위','n'],['lagTotal','지역낙후도 대상 시군 수','n'],
-  ['vehRate','차량 보유율(대/인) — 시군구 등록대수÷인구','n'],['taskLen','과업연장(km) — 비우면 측선으로 자동','s'],['riverLen','하천연장(km) — 위치도 표기용','s'],
+  ['projName','과업명 (보고서 머리글)','s'],['riverGrade','하천 등급 (표 하천명 아래, 예: 지방하천)','s'],['vehRate','차량 보유율(대/인) — 시군구 등록대수÷인구','n'],['taskLen','과업연장(km) — 비우면 측선으로 자동','s'],['riverLen','하천연장(km) — 위치도 표기용','s'],
   ['cell','침수심 격자 크기(m)','n'],['dxfCrs','DXF 좌표계','crs'],
   ['includeSubsidiary','부대공 비용 포함','b'],['lifeAnnualize','인명피해 연평균화','b'],['contentsTriple','건물내용물 3중 합산','b'],['discountMode','할인 방식','dm']
 ];
 var GUIDE = {Ts:[20,30,50,80,100,200], r1:4.5, r1Years:30, r2:3.5, period:50, buildYears:1, growth:0, omRate:2, benefitRatio:1,
   priceYear:2024, lifeCpiYear:2024, gniYear:2024, cityTypeGoods:'농촌지역', cityTypeLife:'농촌지역', industrySido:'전북',
-  pfdCode:'', pfdArea:'', pfdGrade:'', pfdValue:0, ecoGrade:'3', lagRank:0, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto', taskLen:'', riverLen:'', vehRate:0.51,
+  pfdCode:'', pfdArea:'', pfdGrade:'', pfdValue:0, ecoGrade:'3', lagRank:0, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto', taskLen:'', riverLen:'', vehRate:0.51, projName:'', riverGrade:'',
   method:'kfrm', duration:0, defStr:'조적조', discountMode:'chain', includeSubsidiary:true, lifeAnnualize:true, contentsTriple:false, residual:{축제공:0.8, 호안공:0.1, 구조물공:0, 보상비:1}};
 var V9 = Object.assign({}, GUIDE, {r1:5.5, r2:4.5, growth:3, cityTypeLife:'전원도시', industrySido:'전남', pfdCode:'3302', pfdArea:'정읍시',
   method:'mdfda', discountMode:'v9', includeSubsidiary:false, lifeAnnualize:false, contentsTriple:true});
@@ -1165,6 +1165,7 @@ function saveWb(wb, name){ return save(new Blob([XLSX.write(wb, {type:'array', b
 function template(){
   var tf = FILES.find(function(x){ return x.role === 'template'; });
   if (tf) return tf.file.arrayBuffer().then(function(b){ return JSZip.loadAsync(b).then(function(z){ return z.generateAsync({type:'base64'}); }); });
+  if ((P && P.settings && P.settings.method === 'kfrm' || CUR.method === 'kfrm') && window.TPL_K_B64) return Promise.resolve(window.TPL_K_B64);   // K-FRM: 부록 5장 양식
   if (TPL) return Promise.resolve(TPL);
   if (window.TPL_B64) return Promise.resolve(TPL = window.TPL_B64);
   if (IS_GAS) return new Promise(function(ok, no){ google.script.run.withSuccessHandler(function(b){ TPL = b; ok(b); }).withFailureHandler(function(e){ no(new Error('보고서 양식을 불러오지 못했습니다: ' + e.message)); }).getTemplate(); });
@@ -1178,7 +1179,7 @@ $('bHwp').onclick = function(){
     }).catch(function(e){ log('⚠ 위치도를 넣지 못했습니다(' + e.message + ') — 그림 없이 만듭니다.'); return []; })
     : Promise.resolve([]).then(function(x){ log('지구 형상이 없어 위치도 없이 보고서를 만듭니다.'); return x; });
   Promise.all([template(), figs]).then(function(r){ if (r[1].length) log('보고서에 위치도 ' + r[1].length + '장을 넣습니다(1.1 끝, <그림 5.1-N>).'); return REPORT.make(r[0], P, OUT, P.settings, r[1]); }).then(function(r){ return save(r.blob, ((P.districts[0] || {}).river || '') + ' 치수경제성 분석 보고서.hwpx'); })
-    .catch(function(e){ log('오류: ' + e.message); }).then(function(){ b.disabled = false; });
+    .catch(function(e){ log('오류: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; });
 };
 $('bGis').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }

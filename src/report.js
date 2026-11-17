@@ -21,8 +21,9 @@ var REPORT = (function () {
   // ---- 셀 편집 ----
   function setCellText(tc, value) {
     var v = esc(value === null || value === undefined ? '' : value), first = true;
-    var has = /<hp:t>[^<]*<\/hp:t>|<hp:t\/>/.test(tc);
-    if (has) return tc.replace(/<hp:t>[^<]*<\/hp:t>|<hp:t\/>/g, function () { var r = first ? '<hp:t>' + v + '</hp:t>' : '<hp:t></hp:t>'; first = false; return r; });
+    var TT = /<hp:t>(?:[^<]|<(?!\/hp:t>)[^>]*>)*<\/hp:t>|<hp:t\/>/g;   // 글자 안에 <hp:fwSpace/> 등 태그가 든 경우도
+    var has = new RegExp(TT.source).test(tc);
+    if (has) return tc.replace(TT, function () { var r = first ? '<hp:t>' + v + '</hp:t>' : '<hp:t></hp:t>'; first = false; return r; });
     return tc.replace(/<hp:run charPrIDRef="(\d+)"\s*\/>/, '<hp:run charPrIDRef="$1"><hp:t>' + v + '</hp:t></hp:run>');
   }
   function cellsOf(tr) { return ranges(tr, 'hp:tc').map(function (r) { return tr.slice(r[0], r[1]); }); }
@@ -150,7 +151,65 @@ var REPORT = (function () {
   }
 
   /* P: 프로젝트(입력), O: ECON.run 결과, A: AHP 결과, st: 설정 */
+  // ---- 부록 5장 K-FRM 양식(위험노출건물·차량·인적·농업·총피해·연평균·경제성·AHP·개략사업비) ----
+  function buildK(xml, P, O, A, st) {
+    var res = O.results.filter(function (r) { return !r.error; }), Ts = O.Ts, K = 1000;   // 백만원 → 천원
+    var grade = st.riverGrade || '';
+    // 하천명 칸: 하천의 첫 지구 첫 행 = 하천명, 둘째 행 = 등급
+    var lab = function (groups, rivers) {
+      var seen = {};
+      groups.forEach(function (g, gi) {
+        var rv = rivers[gi], first = !seen[rv]; seen[rv] = 1;
+        g.forEach(function (row, ri) { row[0] = first && ri === 0 ? rv : first && ri === 1 ? grade : ''; if (ri > 0) row[1] = ''; });
+      });
+      return groups;
+    };
+    var rivers = res.map(function (r) { return r.district.river || ''; });
+    var perT = function (fn) { return lab(res.map(function (r) { return Ts.map(function (T) { return [null, r.district.name, T].concat(fn(r.damage[T] || {}, r, T)); }); }), rivers); };
+    var tbls = ranges(xml, 'hp:tbl').map(function (r) { return { a: r[0], b: r[1], t: txt(xml.slice(r[0], r[1])).replace(/\s/g, '') }; });
+    var find = function (re, not) { return tbls.filter(function (t) { return /하천명/.test(t.t) && re.test(t.t) && !(not && not.test(t.t)); }); };   // 결과표는 모두 '하천명' 머리칸
+    var jobs = [], removeT = [];
+    var add = function (list, header, groups) { if (!list.length) return; jobs.push({ t: list[0], header: header, groups: groups }); removeT = removeT.concat(list.slice(1)); };
+    // 대상지구
+    add(find(/측점\(No\.\)/), 1, lab(P.districts.map(function (d) { return [[null, d.name, String(d.bank || '').replace('안', ''), d.section || '', f((d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0)), '']]; }), P.districts.map(function (d) { return d.river || ''; })));
+    add(find(/위험노출건물/), 1, perT(function (d) { return [f(d.bExp), f(d.nBldg), f(d.building * K), f(d.contents * K), f((d.building + d.contents) * K)]; }));
+    add(find(/위험노출차량/), 1, perT(function (d) { return [f(d.nVeh, 1), f(d.vehDmgN, 1), f(d.vehVal * K), f(d.vehicle * K)]; }));
+    add(find(/이재민수/), 2, perT(function (d) { return [f(d.casGen, 4), f(d.casVul, 4), f(d.lifeOnly * K), f(d.evacuees, 1), f(d.evac * K), f((d.lifeOnly + d.evac) * K)]; }));
+    add(find(/매몰비용/), 2, perT(function (d) { return [f(d.cropArea), f(d.cropCost * K), f(d.cropNet * K), f(d.farmArea), f(d.farmland * K), f((d.crop + d.farmland) * K)]; }));
+    add(find(/사유재산피해액/), 2, perT(function (d) { return [f((d.building + d.contents) * K), f(d.vehicle * K), f((d.lifeOnly + d.evac) * K), f(d.agriculture * K), f(d.public * K), f(d.total * K)]; }));
+    // 연평균 피해경감기대액 (econ.annual과 같은 구간 적분)
+    add(find(/구간확률/, /유량규모/), 1, lab(res.map(function (r) {
+      var prevP = null, prevD = 0, cum = 0;
+      return Ts.map(function (T, i) {
+        var pT = 1 / T, D = ((r.damage[T] || {}).total || 0) * K, dP = i === 0 ? pT : prevP - pT, avg = i === 0 ? D / 2 : (prevD + D) / 2, an = dP * avg; cum += an; prevP = pT; prevD = D;
+        return [null, r.district.name, T, pT.toFixed(4), f(D), f(avg), dP.toFixed(4), f(an), f(cum)];
+      });
+    }), rivers));
+    add(find(/현재가치편익/), 1, lab(res.map(function (r) { return Ts.map(function (T) { var e = r.econ[T] || {}; return [null, r.district.name, T, f(e.benefitPV), f(e.costPV), e.BC !== undefined ? e.BC.toFixed(3) : '-', f(e.NPV), e.IRR ? (e.IRR * 100).toFixed(2) : '-']; }); }), rivers));
+    var rk = {}; (A.rows || []).forEach(function (a) { rk[a.name] = a; });
+    add(find(/홍수피해잠재능/, /설명/), 2, lab(res.map(function (r) { var a = rk[r.district.name] || {}; return [[null, r.district.name, a.BC !== undefined ? a.BC.toFixed(3) : '-', a.sPFD !== undefined ? a.sPFD.toFixed(2) : '-', a.sRisk !== undefined ? a.sRisk.toFixed(2) : '-', a.sEco !== undefined ? a.sEco.toFixed(2) : '-', a.sLag !== undefined ? a.sLag.toFixed(2) : '-', a.score !== undefined ? a.score.toFixed(2) : '-', a.rank || '-']]; }), rivers));
+    add(find(/용지보상비/), 2, lab(res.map(function (r) {
+      var T = r.district.designT, c = (P.costs[r.district.name] || {})[T] || {}, e = r.econ[T] || {};
+      var lev = (c.축제공 || 0) + (c.호안공 || 0), str = c.구조물공 || 0, sub = (c.부대공 || 0) + (c.제경비 || 0), comp = c.보상비 || 0;
+      return [[null, r.district.name, f(lev), f(str), f(e.om, 1), f(sub), f(comp), f(lev + str + sub + comp)]];
+    }), rivers));
+    var edits = jobs.map(function (j) { return { a: j.t.a, b: j.t.b, s: rebuild(xml.slice(j.t.a, j.t.b), j.header, j.groups) }; });
+    topParas(xml).forEach(function (p) { if (removeT.some(function (r) { return r.a >= p[0] && r.b <= p[1]; })) edits.push({ a: p[0], b: p[1], s: '' }); });
+    edits.sort(function (x, y) { return y.a - x.a; });
+    var lastA = Infinity;
+    edits.forEach(function (e) { if (e.b <= lastA) { xml = xml.slice(0, e.a) + e.s + xml.slice(e.b); lastA = e.a; } });
+    // 문장: 할인율·분석기간·유지관리비율, 과업명
+    var proj = st.projName || ((P.districts[0] || {}).river ? (P.districts[0].river + ' 치수경제성 분석') : '치수경제성 분석');
+    xml = xml.split('{{PROJECT}}').join(esc(proj));
+    xml = xml.replace(/<hp:t>([^<]*)<\/hp:t>/g, function (m, t) {
+      t = t.replace(/30년 동안은\s*[\d.]+%,\s*이후 기간은\s*[\d.]+%/, st.r1Years + '년 동안은 ' + st.r1 + '%, 이후 기간은 ' + st.r2 + '%')
+           .replace(/분석기간을\s*\d+년으로/, '분석기간을 ' + st.period + '년으로').replace(/사업비의 약\s*[\d.]+%/, '사업비의 약 ' + st.omRate + '%');
+      return '<hp:t>' + t + '</hp:t>';
+    });
+    return xml.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');
+  }
   function build(xml, P, O, A, st) {
+    if (/위험노출건물/.test(xml.replace(/<[^>]+>/g, '').replace(/\s/g, ''))) return buildK(xml, P, O, A, st);
     var river = (P.districts[0] || {}).river || '';
     if (st.method === 'kfrm') xml = kfrmSection(xml, P, st);
     var res = O.results.filter(function (r) { return !r.error; }), Ts = O.Ts;
@@ -287,11 +346,45 @@ var REPORT = (function () {
     if (k > 0) x = x.replace('pageBreak="0"', 'pageBreak="1"');
     return x.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');
   }
+  // 양식 안의 그림 틀(1칸 표 + <hp:pic> + 그림 캡션)을 찾아 새 그림으로 바꿔 씀
+  function frameIn(xml) {
+    var ps = topParas(xml);
+    for (var i = 0; i < ps.length; i++) { var seg = xml.slice(ps[i][0], ps[i][1]); if (/numberingType="PICTURE"/.test(seg) && /rowCnt="1" colCnt="1"/.test(seg) && (seg.match(/<hp:pic /g) || []).length === 1) return seg; }
+    return null;
+  }
+  function figGeneric(fr, f, k) {
+    var tw = +(/<hp:tbl [\s\S]*?<hp:sz width="(\d+)"/.exec(fr) || [0, 45000])[1], W = tw - 400, H = Math.round(W * f.h / f.w);
+    if (H > 62000) { H = 62000; W = Math.round(H * f.w / f.h); }
+    var ow = f.w * 75, oh = f.h * 75, x = fr;
+    x = x.replace(/(<hp:pic [\s\S]*?<\/hp:pic>)/, function (pic) {
+      return pic.replace(/<hp:offset [^>]*\/>/, '<hp:offset x="0" y="0"/>')
+        .replace(/<hp:orgSz [^>]*\/>/, '<hp:orgSz width="' + ow + '" height="' + oh + '"/>')
+        .replace(/<hp:curSz [^>]*\/>/, '<hp:curSz width="' + W + '" height="' + H + '"/>')
+        .replace(/centerX="\d+" centerY="\d+"/, 'centerX="' + Math.round(W / 2) + '" centerY="' + Math.round(H / 2) + '"')
+        .replace(/<hc:transMatrix [^>]*\/>/, '<hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/>')
+        .replace(/<hc:scaMatrix [^>]*\/>/, '<hc:scaMatrix e1="' + (W / ow).toFixed(6) + '" e2="0" e3="0" e4="0" e5="' + (H / oh).toFixed(6) + '" e6="0"/>')
+        .replace(/<hp:imgRect>[\s\S]*?<\/hp:imgRect>/, '<hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="' + ow + '" y="0"/><hc:pt2 x="' + ow + '" y="' + oh + '"/><hc:pt3 x="0" y="' + oh + '"/></hp:imgRect>')
+        .replace(/<hp:imgClip [^>]*\/>/, '<hp:imgClip left="0" right="' + ow + '" top="0" bottom="' + oh + '"/>')
+        .replace(/binaryItemIDRef="[^"]+"/, 'binaryItemIDRef="' + f.id + '"')
+        .replace(/(<hp:sz width=")\d+(" widthRelTo="ABSOLUTE" height=")\d+/, '$1' + W + '$2' + H)
+        .replace(/<hp:shapeComment>[\s\S]*?<\/hp:shapeComment>/, '<hp:shapeComment>그림입니다.\n원본 그림의 이름: ' + esc(f.file) + '\n원본 그림의 크기: 가로 ' + f.w + 'pixel, 세로 ' + f.h + 'pixel</hp:shapeComment>')
+        .replace(/ id="\d+"/, ' id="' + (1300000000 + k) + '"').replace(/instid="\d+"/, 'instid="' + (200000000 + k) + '"');
+    });
+    x = x.replace(/(<hp:tbl [^>]*?)id="\d+"/, '$1id="' + (1310000000 + k) + '"')
+         .replace(/(<hp:tbl [\s\S]*?<hp:sz width="\d+" widthRelTo="ABSOLUTE" height=")\d+/, '$1' + (H + 600))
+         .replace(/(<hp:cellSz width="\d+" height=")\d+/, '$1' + (H + 300));
+    // 캡션: '<그림 ..-N>' 뒤 글자만 바꿈
+    x = x.replace(/(<hp:caption[\s\S]*?<\/hp:ctrl><hp:t>)&gt;[^<]*(<\/hp:t>)/, '$1&gt; ' + esc(f.caption) + '$2');
+    x = x.replace(/pageBreak="\d"/, 'pageBreak="' + (k > 0 ? 1 : 0) + '"');
+    return x.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '').replace(/<hp:markpen(Begin|End)[^>]*\/>/g, '');
+  }
   function addFigures(zip, xml, figs) {
     if (!figs || !figs.length) return Promise.resolve(xml);
-    var at = xml.indexOf('1.2 치수사업의 편익산정'); if (at < 0) return Promise.resolve(xml);
+    var at = xml.indexOf('1.2 치수사업의 편익산정'), fr = null;
+    if (at < 0) { at = xml.indexOf('편익(피해액) 산정</hp:t>'); fr = frameIn(xml); }   // 부록 5장 양식: 5.1.3(자동 번호) 앞
+    if (at < 0) return Promise.resolve(xml);
     at = xml.lastIndexOf('<hp:p ', at);
-    xml = xml.slice(0, at) + figs.map(figXml).join('') + xml.slice(at);
+    xml = xml.slice(0, at) + figs.map(function (f, k) { return fr ? figGeneric(fr, f, k) : figXml(f, k); }).join('') + xml.slice(at);
     figs.forEach(function (f) { zip.file('BinData/' + f.file, f.data); });
     return zip.file('Contents/content.hpf').async('string').then(function (h) {
       zip.file('Contents/content.hpf', h.replace('</opf:manifest>', figs.map(function (f) { return '<opf:item id="' + f.id + '" href="BinData/' + f.file + '" media-type="image/jpg" isEmbeded="1"/>'; }).join('') + '</opf:manifest>'));

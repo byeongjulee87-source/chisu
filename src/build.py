@@ -11,7 +11,8 @@ libs = code + data(sample)
 app = rd('app.html')
 assert '<!--LIBS-->' in app
 tpl = open(os.path.join(d, 'template.hwpx'), 'rb').read()
-tpljs = '<script>window.TPL_B64 = "' + base64.b64encode(tpl).decode() + '";</script>'
+tplk = open(os.path.join(d, 'template_kfrm.hwpx'), 'rb').read()   # K-FRM 부록 5장 양식(사용자 제공 형식, 과업 값 비움)
+tpljs = '<script>window.TPL_B64 = "' + base64.b64encode(tpl).decode() + '"; window.TPL_K_B64 = "' + base64.b64encode(tplk).decode() + '";</script>'
 # 공개용(깃허브): 과업 자료(지구·읍면동·공사비·GIS·기존 엑셀 결과)는 빼고 계산 기준표(tables)만 넣음
 # 공개용 예시: 과업 이름을 가상 이름으로 바꾸고(상두천→예시천, 정읍시→가상시, 산외면→가상면) 기존 엑셀 결과(v9)는 뺌
 _t = json.dumps({k: v for k, v in sample.items() if k not in ('tables', 'v9', 'project', 'synthetic')}, ensure_ascii=False)
@@ -44,7 +45,7 @@ os.makedirs(os.path.join(root, '배포'), exist_ok=True)
 open(os.path.join(root, '배포', 'index.html'), 'w', encoding='utf-8', newline='\n').write(public_page)
 
 # ① 로컬
-local = app.replace('<!--LIBS-->', libs + '<script>window.TPL_B64 = "' + base64.b64encode(tpl).decode() + '";</script>')
+local = app.replace('<!--LIBS-->', libs + tpljs)
 open(os.path.join(root, '치수경제성.html'), 'w', encoding='utf-8', newline='\n').write(local)
 
 # ② 구글 스크립트
