@@ -151,6 +151,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
       <button id="bXls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg><span><b>결과 엑셀</b><small>요약·피해액·편익·경제성·우선순위·현금흐름</small></span></button>
       <button id="bGis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span><b>침수면적표</b><small>지구·빈도·침수심·토지피복별 면적</small></span></button>
       <button id="bMap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.5-7-11a7 7 0 0114 0c0 4.5-7 11-7 11z"/></svg><span><b>위성 위치도</b><small>종합 위치도 + 지구별 위치도 (PNG 묶음)</small></span></button>
+      <button id="bFlood"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15c2 0 2-1.5 4.5-1.5S10 15 12 15s2.5-1.5 4.5-1.5S19 15 21 15"/><path d="M3 19c2 0 2-1.5 4.5-1.5S10 19 12 19s2.5-1.5 4.5-1.5S19 19 21 19"/><path d="M12 3l3 6H9z"/></svg><span><b>홍수범람도 (QGIS)</b><small>빈도별 침수심 래스터(GeoTIFF) + QGIS 조판 스크립트</small></span></button>
     </div>
     <div class="grid2">
       <div class="panel"><h3 id="mapTitle">침수심도</h3><canvas id="map" width="640" height="420"></canvas>
@@ -1223,6 +1224,73 @@ $('bMap').onclick = function(){
   mapsJob('png').then(function(list){ var z = new JSZip(); list.forEach(function(m){ z.file(m.file, m.blob); }); return z.generateAsync({type:'blob'}); })
     .then(function(bl){ return save(bl, (river ? river + '_' : '') + '위성위치도.zip'); })
     .catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
+};
+// ---- 홍수범람도: 하도버퍼링 침수심을 GeoTIFF로 내보내고, QGIS 스크립트(홍수범람도.py)로 스타일·조판·출력 ----
+// 최소 GeoTIFF(무압축 1밴드): rows는 위(북)→아래, data는 Float32Array 또는 Uint8Array
+function geoTiff(W, H, data, x0, yTop, cell, epsg, nodata){
+  var isF = data instanceof Float32Array, bps = isF ? 4 : 1, img = W * H * bps;
+  var tags = [[256,3,1,W],[257,3,1,H],[258,3,1,bps * 8],[259,3,1,1],[262,3,1,1],[273,4,1,0],[277,3,1,1],[278,3,1,H],[279,4,1,img],[284,3,1,1],[339,3,1,isF ? 3 : 1],
+    [33550,12,3,'scale'],[33922,12,6,'tie'],[34735,3,20,'geo'],[42113,2,0,'nd']];
+  var nd = String(nodata) + '\0'; tags[14][2] = nd.length;
+  var ifd = 8, ifdLen = 2 + tags.length * 12 + 4, ex = ifd + ifdLen, off = {};
+  off.scale = ex; off.tie = ex + 24; off.geo = ex + 72; off.nd = ex + 112; var imgOff = off.nd + nd.length + (8 - (off.nd + nd.length) % 8) % 8;
+  var buf = new ArrayBuffer(imgOff + img), v = new DataView(buf);
+  v.setUint8(0, 0x49); v.setUint8(1, 0x49); v.setUint16(2, 42, true); v.setUint32(4, ifd, true);
+  v.setUint16(ifd, tags.length, true);
+  tags.forEach(function(t, k){
+    var p = ifd + 2 + k * 12; v.setUint16(p, t[0], true); v.setUint16(p + 2, t[1], true); v.setUint32(p + 4, t[2], true);
+    var val = t[0] === 273 ? imgOff : t[3];
+    if (typeof val === 'string') v.setUint32(p + 8, off[val], true);
+    else if (t[1] === 3) v.setUint16(p + 8, val, true); else v.setUint32(p + 8, val, true);
+  });
+  v.setUint32(ifd + 2 + tags.length * 12, 0, true);
+  [cell, cell, 0].forEach(function(d, i){ v.setFloat64(off.scale + i * 8, d, true); });
+  [0, 0, 0, x0, yTop, 0].forEach(function(d, i){ v.setFloat64(off.tie + i * 8, d, true); });
+  [1,1,0,4, 1024,0,1,1, 1025,0,1,1, 3072,0,1,epsg, 3076,0,1,9001].forEach(function(d, i){ v.setUint16(off.geo + i * 2, d, true); });
+  for (var c = 0; c < nd.length; c++) v.setUint8(off.nd + c, nd.charCodeAt(c));
+  if (isF) { var f32 = new Float32Array(buf, imgOff, W * H); f32.set(data); } else new Uint8Array(buf, imgOff, W * H).set(data);
+  return buf;
+}
+function floodPackage(){
+  var G = KGRID, Ts = OUT.Ts, epsg = +String(KTARGET || 'EPSG:5186').replace(/\D/g, ''), z = new JSZip();
+  var names = OUT.results.filter(function(r){ return !r.error; }).map(function(r){ return r.district.name; });
+  var idOf = {}; names.forEach(function(n, i){ idOf[n] = i + 1; });
+  var dn = G.zones.map(function(q){ return idOf[q.district] || 0; }), yTop = G.y0 + G.ny * G.cell, areas = {};
+  var cls = function(d){ return d < 0.5 ? 0 : d < 1 ? 1 : d < 2 ? 2 : d < 5 ? 3 : 4; }, ha = G.cell * G.cell / 1e4;
+  Ts.forEach(function(T){
+    var D = G.depth[T], dep = new Float32Array(G.nx * G.ny), zon = new Uint8Array(G.nx * G.ny), ar = {};
+    for (var j = 0; j < G.ny; j++) { var r = (G.ny - 1 - j) * G.nx, s0 = j * G.nx;
+      for (var i = 0; i < G.nx; i++) { var d = D[s0 + i], k = r + i;
+        if (d > 0 && G.zid[s0 + i] >= 0) { dep[k] = d; var id = dn[G.zid[s0 + i]]; zon[k] = id; if (id) { var n = names[id - 1]; (ar[n] = ar[n] || [0,0,0,0,0])[cls(d)] += ha; } }
+        else dep[k] = -9999; } }
+    z.file('침수심_' + T + '년.tif', geoTiff(G.nx, G.ny, dep, G.x0, yTop, G.cell, epsg, -9999));
+    z.file('지구_' + T + '년.tif', geoTiff(G.nx, G.ny, zon, G.x0, yTop, G.cell, epsg, 0));
+    areas[T] = ar;
+  });
+  // 벡터(경위도 GeoJSON): 하천 중심선·측점·유역계
+  var t4 = CRS.transformer(KMAP.crs, 'EPSG:4326'), fc = function(feats){ return JSON.stringify({type:'FeatureCollection', features:feats}); };
+  if (KMAP.river.length > 1) z.file('하천.geojson', fc([{type:'Feature', properties:{name:(P.districts[0] || {}).river || ''}, geometry:{type:'LineString', coordinates:KMAP.river.map(t4)}}]));
+  var stp = KMAP.stations, every = Math.max(1, Math.ceil(stp.length / 8));
+  if (stp.length) z.file('측점.geojson', fc(stp.map(function(q, i){ return {type:'Feature', properties:{key:q.key, show:(i % every === 0 || i === stp.length - 1) ? 1 : 0}, geometry:{type:'Point', coordinates:t4(q.p)}}; })));
+  if (KMAP.basin && KMAP.basin.length) z.file('유역계.geojson', fc(KMAP.basin.map(function(r){ return {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[r.map(t4)]}}; })));
+  var d0 = P.districts[0] || {}, SIDO = {'전북':'전북특별자치도','전남':'전라남도','경북':'경상북도','경남':'경상남도','충북':'충청북도','충남':'충청남도','강원':'강원특별자치도','경기':'경기도','제주':'제주특별자치도'};
+  var emds = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
+  var meta = {river:d0.river || '', adm:[SIDO[d0.sido] || d0.sido, d0.sigungu, emds.join('·')].filter(Boolean).join(' '), crs:'EPSG:' + epsg, cell:G.cell, Ts:Ts,
+    designT:Math.max.apply(null, P.districts.map(function(d){ return d.designT || 0; })), districts:names.map(function(n, i){ return {id:i + 1, name:n}; }), areas:areas, vkey:apiv('vkey')};
+  z.file('meta.json', JSON.stringify(meta, null, 1));
+  z.file('홍수범람도.py', window.FLOOD_PY || '');
+  z.file('읽어보기.txt', ['치수경제성 에이전트 — 홍수범람도 (QGIS)', '', '1. 이 zip을 폴더에 풀기(한글 경로 가능)', '2. QGIS 실행 > 플러그인 > 파이썬 콘솔 > [편집기 표시](연필 아이콘) > [스크립트 열기]로 홍수범람도.py 열기 > [스크립트 실행](▶)',
+    '3. 1~2분 뒤: 같은 폴더에 홍수범람도.qgz(빈도별 그룹·스타일·조판), 출력\\홍수범람도_{빈도}년.png·pdf (A4 세로 300dpi)', '', '파일', ' - 침수심_{빈도}년.tif : 하도버퍼링 침수심(m), ' + meta.crs + ', 격자 ' + G.cell + ' m, 침수 안 된 곳 -9999',
+    ' - 지구_{빈도}년.tif : 침수 칸의 지구 번호(meta.json districts) → QGIS가 다각형으로 바꿔 지형 따라 매끈한 지구 경계를 만듦', ' - 하천·측점·유역계.geojson : 위치 참고선(경위도)', '',
+    '고치기: 홍수범람도.qgz를 열어 [프로젝트 > 조판 관리자]에서 빈도별 조판을 고친 뒤 다시 내보내면 됩니다.'].join('\r\n'));
+  return z.generateAsync({type:'blob', compression:'DEFLATE'});
+}
+$('bFlood').onclick = function(){
+  if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
+  if (!KGRID || !KGRID.depth || !KMAP) { log('홍수범람도: 하도버퍼링 침수심 격자가 없습니다(측선·수치지도·지구계 또는 유역계 필요).'); return; }
+  var b = this, river = (P.districts[0] || {}).river || ''; b.disabled = true; log('홍수범람도 묶음 만드는 중… (빈도 ' + OUT.Ts.length + '개 GeoTIFF + QGIS 스크립트)');
+  floodPackage().then(function(bl){ log('홍수범람도 묶음 ' + (bl.size / 1048576).toFixed(1) + ' MB — 풀어서 QGIS에서 홍수범람도.py를 실행하면 빈도별 범람도(PNG·PDF)와 QGIS 프로젝트가 만들어집니다.'); return save(bl, (river ? river + '_' : '') + '홍수범람도_QGIS.zip'); })
+    .catch(function(e){ log('홍수범람도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; });
 };
 $('bXls').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
