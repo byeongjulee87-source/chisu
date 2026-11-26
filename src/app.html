@@ -150,7 +150,7 @@ svg.bc text{fill:var(--mute);font-size:11px}
       <button class="primary" id="bHwp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg><span><b>치수경제성 보고서</b><small>경제성 분석 · 투자우선순위 (.hwpx)</small></span></button>
       <button id="bXls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg><span><b>결과 엑셀</b><small>요약·피해액·편익·경제성·우선순위·현금흐름</small></span></button>
       <button id="bGis"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span><b>침수면적표</b><small>지구·빈도·침수심·토지피복별 면적</small></span></button>
-      <button id="bMap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.5-7-11a7 7 0 0114 0c0 4.5-7 11-7 11z"/></svg><span><b>위성 위치도</b><small>종합 위치도 + 지구별 위치도 (PNG 묶음)</small></span></button>
+      <button id="bMap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="10" r="3"/><path d="M12 21s-7-6.5-7-11a7 7 0 0114 0c0 4.5-7 11-7 11z"/></svg><span><b>위성 위치도</b><small>종합위치도 한 장 (A4 PNG) — 지구별은 설정에서</small></span></button>
       <button id="bFlood"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15c2 0 2-1.5 4.5-1.5S10 15 12 15s2.5-1.5 4.5-1.5S19 15 21 15"/><path d="M3 19c2 0 2-1.5 4.5-1.5S10 19 12 19s2.5-1.5 4.5-1.5S19 19 21 19"/><path d="M12 3l3 6H9z"/></svg><span><b>홍수범람도 (QGIS)</b><small>빈도별 침수심 래스터(GeoTIFF) + QGIS 조판 스크립트</small></span></button>
     </div>
     <div class="grid2">
@@ -190,13 +190,13 @@ var SET = [
   ['cityTypeGoods','도시유형(가정용품)','city'],['cityTypeLife','도시유형(인명·이재민)','city'],['industrySido','산업자산 시도','sido'],['priceYear','가격기준년도','n'],
   ['pfdCode','PFD 단위구역 코드','s'],['pfdArea','PFD 단위구역명','s'],['pfdGrade','PFD 등급','s'],['pfdValue','PFD 값','n'],
   ['ecoGrade','생태자연도 등급','s'],['lagRank','지역낙후도 순위','n'],['lagTotal','지역낙후도 대상 시군 수','n'],
-  ['projName','과업명 (보고서 머리글)','s'],['riverGrade','하천 등급 (표 하천명 아래, 예: 지방하천)','s'],['vehRate','차량 보유율(대/인) — 시군구 등록대수÷인구','n'],['taskLen','과업연장(km) — 비우면 측선으로 자동','s'],['riverLen','하천연장(km) — 위치도 표기용','s'],
+  ['projName','과업명 (보고서 머리글)','s'],['mapEach','지구별 위치도도 만들기','b'],['riverGrade','하천 등급 (표 하천명 아래, 예: 지방하천)','s'],['vehRate','차량 보유율(대/인) — 시군구 등록대수÷인구','n'],['taskLen','과업연장(km) — 비우면 측선으로 자동','s'],['riverLen','하천연장(km) — 위치도 표기용','s'],
   ['cell','침수심 격자 크기(m)','n'],['dxfCrs','DXF 좌표계','crs'],
   ['includeSubsidiary','부대공 비용 포함','b'],['lifeAnnualize','인명피해 연평균화','b'],['contentsTriple','건물내용물 3중 합산','b'],['discountMode','할인 방식','dm']
 ];
 var GUIDE = {Ts:[20,30,50,80,100,200], r1:4.5, r1Years:30, r2:3.5, period:50, buildYears:1, growth:0, omRate:2, benefitRatio:1,
   priceYear:2024, lifeCpiYear:2024, gniYear:2024, cityTypeGoods:'농촌지역', cityTypeLife:'농촌지역', industrySido:'전북',
-  pfdCode:'', pfdArea:'', pfdGrade:'', pfdValue:0, ecoGrade:'3', lagRank:0, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto', taskLen:'', riverLen:'', vehRate:0.51, projName:'', riverGrade:'',
+  pfdCode:'', pfdArea:'', pfdGrade:'', pfdValue:0, ecoGrade:'3', lagRank:0, lagTotal:168, riskYears:50, cell:1, dxfCrs:'auto', taskLen:'', riverLen:'', vehRate:0.51, projName:'', riverGrade:'', mapEach:false,
   method:'kfrm', duration:0, defStr:'조적조', discountMode:'chain', includeSubsidiary:true, lifeAnnualize:true, contentsTriple:false, residual:{축제공:0.8, 호안공:0.1, 구조물공:0, 보상비:1}};
 var V9 = Object.assign({}, GUIDE, {r1:5.5, r2:4.5, growth:3, cityTypeLife:'전원도시', industrySido:'전남', pfdCode:'3302', pfdArea:'정읍시',
   method:'mdfda', discountMode:'v9', includeSubsidiary:false, lifeAnnualize:false, contentsTriple:true});
@@ -1242,8 +1242,7 @@ function mapsJob(fmt){
   var out = [], ext = fmt === 'jpg' ? '.jpg' : '.png';
   log('위성 위치도 그리는 중… (종합 1장 + 지구별 ' + names.length + '장)');
   var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(enc).then(function(r){ out.push({name:'종합', file:'00_' + (river ? river + '_' : '') + '종합위치도' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 종합위치도', blob:r.blob, w:r.w, h:r.h}); });
-  if (rows.length > 10) chain = chain.then(function(){ return LOCMAP.renderTable(info); }).then(enc).then(function(r){ out.push({name:'현황표', file:'00_' + (river ? river + '_' : '') + '지구현황표' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 현황', blob:r.blob, w:r.w, h:r.h}); });
-  names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
+  if (CUR.mapEach) names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
   return chain.then(function(){
     log('위성 위치도 ' + out.length + '장 완료 — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
     return out;
@@ -1253,8 +1252,9 @@ $('bMap').onclick = function(){
   if (!OUT || !P) { log('먼저 [분석하고 보고서 만들기]를 끝까지 실행하세요.'); return; }
   if (!mapsReady()) { log('위성 위치도: 지구 형상이 없습니다. 측선·수치지도(+지구계 또는 유역계)를 넣고 분석해야 그릴 수 있습니다.'); return; }
   var b = this, river = (P.districts[0] || {}).river || ''; b.disabled = true;
-  mapsJob('png').then(function(list){ var z = new JSZip(); list.forEach(function(m){ z.file(m.file, m.blob); }); return z.generateAsync({type:'blob'}); })
-    .then(function(bl){ return save(bl, (river ? river + '_' : '') + '위성위치도.zip'); })
+  mapsJob('png').then(function(list){
+      if (list.length === 1) return save(list[0].blob, list[0].file);
+      var z = new JSZip(); list.forEach(function(m){ z.file(m.file, m.blob); }); return z.generateAsync({type:'blob'}).then(function(bl){ return save(bl, (river ? river + '_' : '') + '위성위치도.zip'); }); })
     .catch(function(e){ log('위성 위치도 실패: ' + e.message); console.error(e); }).then(function(){ b.disabled = false; prog(100, ''); });
 };
 // ---- 홍수범람도: 하도버퍼링 침수심을 GeoTIFF로 내보내고, QGIS 스크립트(홍수범람도.py)로 스타일·조판·출력 ----
