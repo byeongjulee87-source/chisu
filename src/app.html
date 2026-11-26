@@ -1224,7 +1224,10 @@ function mapsJob(fmt){
     return {name:d.name, len:(d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0), cost:e ? e.total : null, bc:e ? e.BC : null, score:a.score, rank:a.rank, T:x.T, section:d.section}; });
   var d0 = P.districts[0] || {}, emds = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
   var rl = 0; for (var i = 1; i < KMAP.river.length; i++) rl += Math.hypot(KMAP.river[i][0] - KMAP.river[i - 1][0], KMAP.river[i][1] - KMAP.river[i - 1][1]);
-  var info = {title:[d0.sido, d0.sigungu, emds.join('·')], river:d0.river || '', rows:rows, taskLen:String(CUR.taskLen || '').trim() || (rl ? (rl / 1000).toFixed(2) : ''), riverLen:String(CUR.riverLen || '').trim()};
+  // 과업연장: 측점이 '3+139'처럼 km 표기면 (최대−최소 측점), 아니면 하천선 길이
+  var stm = KMAP.stations.map(function(q){ var m = /(\d+)\s*\+\s*(\d{3})(?:\.\d+)?$/.exec(String(q.key)); return m ? +m[1] * 1000 + +m[2] : null; }).filter(function(v){ return v !== null; });
+  var sRange = stm.length > 1 ? (Math.max.apply(null, stm) - Math.min.apply(null, stm)) : 0;
+  var info = {title:[d0.sido, d0.sigungu, emds.join('·')], river:d0.river || '', rows:rows, taskLen:String(CUR.taskLen || '').trim() || (sRange ? (sRange / 1000).toFixed(2) : rl ? (rl / 1000).toFixed(2) : ''), riverLen:String(CUR.riverLen || '').trim()};
   var river = d0.river || '', names = rows.map(function(r){ return r.name; }), mapT = Math.max.apply(null, rows.map(function(r){ return r.T || 0; }));
   var ovl = null, Fo = FILES.filter(function(f){ return f.role === 'locmap' && (f.ov || f.text); });
   if (Fo.length) {
@@ -1239,6 +1242,7 @@ function mapsJob(fmt){
   var out = [], ext = fmt === 'jpg' ? '.jpg' : '.png';
   log('위성 위치도 그리는 중… (종합 1장 + 지구별 ' + names.length + '장)');
   var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(enc).then(function(r){ out.push({name:'종합', file:'00_' + (river ? river + '_' : '') + '종합위치도' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 종합위치도', blob:r.blob, w:r.w, h:r.h}); });
+  if (rows.length > 10) chain = chain.then(function(){ return LOCMAP.renderTable(info); }).then(enc).then(function(r){ out.push({name:'현황표', file:'00_' + (river ? river + '_' : '') + '지구현황표' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 현황', blob:r.blob, w:r.w, h:r.h}); });
   names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
   return chain.then(function(){
     log('위성 위치도 ' + out.length + '장 완료 — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));

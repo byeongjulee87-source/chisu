@@ -53,8 +53,15 @@ var LOCMAP = (function () {
       river: (M.river || []).map(m),
       stations: (M.stations || []).map(function (s) { return { p: m(s.p), key: s.key }; }),
       basin: (M.basin || []).map(function (r) { return r.map(m); }),
-      ll: function (p) { return t(p); }, tm: m
+      ll: function (p) { return t(p); }, tm: m, smooth: true
     };
+  }
+  function smoothLine(a, win, pass) {
+    if (a.length < 5) return a;
+    for (var k = 0; k < pass; k++) {
+      a = a.map(function (p, i) { if (i === 0 || i === a.length - 1) return p; var s = [0, 0], n = 0; for (var j = Math.max(0, i - win); j <= Math.min(a.length - 1, i + win); j++) { s[0] += a[j][0]; s[1] += a[j][1]; n++; } return [s[0] / n, s[1] / n]; });
+    }
+    return a;
   }
   function bboxOf(pts) { var b = [Infinity, Infinity, -Infinity, -Infinity]; pts.forEach(function (p) { if (p[0] < b[0]) b[0] = p[0]; if (p[1] < b[1]) b[1] = p[1]; if (p[0] > b[2]) b[2] = p[0]; if (p[1] > b[3]) b[3] = p[1]; }); return b; }
   function fit(b, rect, pad, minSpan) {
@@ -122,16 +129,36 @@ var LOCMAP = (function () {
     sx.globalCompositeOperation = 'source-in'; sx.fillStyle = fill; sx.fillRect(0, 0, Wd, Hd);
     ctx.drawImage(S, rect[0], rect[1]); ctx.drawImage(O, rect[0], rect[1]);
   }
-  var C = { river: '#1e5eff', zone: 'rgba(72,214,104,0.42)', zoneLine: '#2bd46a', focus: '#ff3b30', dim: '#1e3a8a', ink: '#1b2430', navy: '#1f3a5f' };
+  var DEPTH = [[0.5, [255, 224, 178], '0.0 ~ 0.5 m'], [1.0, [255, 183, 77], '0.5 ~ 1.0 m'], [2.0, [255, 152, 0], '1.0 ~ 2.0 m'], [5.0, [239, 108, 0], '2.0 ~ 5.0 m'], [1e9, [191, 54, 12], '5.0 m 이상']];
+  // 계획빈도 침수심(홍수위 − 지반고) → 단계별 색 격자 (pick(d) === 1 인 지구만)
+  function depthCanvas(G, T, FG, pick) {
+    var s = FG.s, W2 = Math.ceil(G.nx / s), H2 = Math.ceil(G.ny / s), c = document.createElement('canvas'); c.width = W2; c.height = H2;
+    var x = c.getContext('2d'), im = x.createImageData(W2, H2), D = G.depth[T], any = false;
+    for (var j = 0; j < G.ny; j += s) for (var i = 0; i < G.nx; i += s) {
+      var k = j * G.nx + i, d = D[k]; if (!(d > 0) || G.zid[k] < 0 || pick(FG.dn[G.zid[k]]) !== 1) continue;
+      var q = 0; while (d >= DEPTH[q][0]) q++;
+      var col = DEPTH[q][1], o = ((j / s | 0) * W2 + (i / s | 0)) * 4; im.data[o] = col[0]; im.data[o + 1] = col[1]; im.data[o + 2] = col[2]; im.data[o + 3] = 255; any = true;
+    }
+    x.putImageData(im, 0, 0); return any ? c : null;
+  }
+  function drawGrid(ctx, rect, G, mc, P, tm, alpha) {
+    var c0 = P(tm([G.x0, G.y0])), c1 = P(tm([G.x0 + G.nx * G.cell, G.y0])), c2 = P(tm([G.x0, G.y0 + G.ny * G.cell]));
+    ctx.save(); ctx.beginPath(); ctx.rect(rect[0], rect[1], rect[2], rect[3]); ctx.clip(); ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = true;
+    ctx.setTransform((c1[0] - c0[0]) / mc.width, (c1[1] - c0[1]) / mc.width, (c2[0] - c0[0]) / mc.height, (c2[1] - c0[1]) / mc.height, c0[0], c0[1]);
+    ctx.drawImage(mc, 0, 0); ctx.restore();
+  }
+  var C = { river: '#1e5eff', zone: 'rgba(255,140,0,0.46)', zoneLine: '#ff8c00', focus: '#ff3b30', dim: '#1e3a8a', ink: '#1b2430', navy: '#1f3a5f' };
 
   function render(M0, info, opt) {
     opt = opt || {};
     var M = prep(M0), focus = opt.focus || null, key = opt.key || '';
+    if (M.river.length >= 5) { M.river = smoothLine(M.river, 2, 3); M.stations.forEach(function (st, i) { if (M.river[i]) st.p = M.river[i]; }); }
     var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
     var rows = focus ? info.rows.filter(function (r) { return r.name === focus; }) : info.rows;
-    var mg = 90, headH = 230, rowH = rows.length > 14 ? 56 : 68, tblH = 70 + 84 + rowH * rows.length + 40;
-    var rect = [mg, mg + headH, W - 2 * mg, H - 2 * mg - headH - tblH - 40];
+    var noTbl = opt.noTable || (!focus && rows.length > 10);
+    var mg = 90, headH = 230, rowH = rows.length > 14 ? 56 : 68, tblH = noTbl ? 0 : 70 + 84 + rowH * rows.length + 40;
+    var rect = [mg, mg + headH, W - 2 * mg, H - 2 * mg - headH - (noTbl ? 50 : tblH + 40)];
     var Z = merge(M.dist), G = opt.grid, FG = G && G.depth && G.depth[opt.T] ? floodStats(G, opt.T, M.tm) : null;
     if (FG && !Object.keys(FG.st).length) FG = null;
     // 범위
@@ -166,7 +193,9 @@ var LOCMAP = (function () {
       if (FG) {
         var m1 = maskCanvas(G, opt.T, FG, function (d) { return !focus || d === focus ? 1 : 2; }, 1), m2 = focus ? maskCanvas(G, opt.T, FG, function (d) { return d === focus ? 1 : 2; }, 2) : null;
         if (m2) drawFlood(ctx, rect, G, m2, P, M.tm, 'rgba(255,255,255,0.22)', 'rgba(255,255,255,0.75)', 3);
-        if (m1) drawFlood(ctx, rect, G, m1, P, M.tm, C.zone, focus ? C.focus : '#1f9e3c', focus ? 6 : 4);
+        var dc = depthCanvas(G, opt.T, FG, function (d) { return !focus || d === focus ? 1 : 2; });
+        if (dc) drawGrid(ctx, rect, G, dc, P, M.tm, 0.82);                 // 침수심 단계(주황)
+        if (m1) drawFlood(ctx, rect, G, m1, P, M.tm, 'rgba(0,0,0,0)', focus ? C.focus : '#e65c00', focus ? 6 : 4);   // 지구 경계
       } else Z.forEach(function (q) {
         var on = !focus || q.d === focus;
         polyPath(ctx, q.polys, P); ctx.fillStyle = on ? C.zone : 'rgba(255,255,255,0.12)'; ctx.fill('evenodd');
@@ -209,33 +238,49 @@ var LOCMAP = (function () {
         });
       }
       // 지구 이름표
-      var boxes = [], cen = function (polys) { var p = bboxOf([].concat.apply([], polys.map(function (rs) { return rs[0]; }))); return [(p[0] + p[2]) / 2, (p[1] + p[3]) / 2]; };
+      var boxes = [[rect[0] + 20, rect[1] + 20, 460, 500], [rect[0] + rect[2] - 330, rect[1], 330, 380], [rect[0] + rect[2] - 690, rect[1] + rect[3] - (FG ? 800 : 520), 690, FG ? 800 : 520]], cen = function (polys) { var p = bboxOf([].concat.apply([], polys.map(function (rs) { return rs[0]; }))); return [(p[0] + p[2]) / 2, (p[1] + p[3]) / 2]; };
       var rc = M.river.length ? P(cen([[M.river]])) : [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
+      var many = !focus && Z.length > 10, LS = many ? (Z.length > 20 ? 0.7 : 0.8) : 1;
       Z.forEach(function (q) {
         if (focus && q.d !== focus) return;
         var row = info.rows.filter(function (r) { return r.name === q.d; })[0] || {};
         var c = P(FG && FG.st[q.d] ? FG.st[q.d].c : cen(q.polys)), dx = c[0] - rc[0], dy = c[1] - rc[1], L = Math.hypot(dx, dy) || 1, off = focus ? 300 : 210;
         var l1 = q.d, l2 = row.section ? 'No.' + String(row.section).replace(/^NO\.?\s*/i, '') : '';
-        ctx.font = 'bold 38px ' + FONT; var w1 = ctx.measureText(l1).width; ctx.font = '30px ' + FONT; var w2 = ctx.measureText(l2).width;
-        var w = Math.max(w1, w2) + 48, h = l2 ? 100 : 62, bx = c[0] + dx / L * off - w / 2, by = c[1] + dy / L * off - h / 2;
-        bx = Math.min(Math.max(bx, rect[0] + 24), rect[0] + rect[2] - w - 24); by = Math.min(Math.max(by, rect[1] + 24), rect[1] + rect[3] - h - 24);
-        for (var it = 1; it < 30 && boxes.some(function (o) { return bx < o[0] + o[2] + 12 && o[0] < bx + w + 12 && by < o[1] + o[3] + 12 && o[1] < by + h + 12; }); it++) by += (h + 14) * (it % 2 ? it : -it) / 2;
+        var sc = LS, F1 = Math.round(36 * sc), F2 = Math.round(30 * sc);
+        ctx.font = 'bold ' + F1 + 'px ' + FONT; var w1 = ctx.measureText(l1).width; ctx.font = F2 + 'px ' + FONT; var w2 = ctx.measureText(l2).width;
+        var w = Math.max(w1, w2) + 40 * sc, h = l2 ? Math.round(96 * sc) : Math.round(60 * sc), hb = Math.round(52 * sc);
+        // 하천에서 가장 가까운 점·방향 → 지구 쪽으로 수직 띄움
+        var nx = dx / L, ny = dy / L, tx = -ny, ty = nx, base = c;
+        if (RV.length > 1) {
+          var bi = 0, bd = Infinity; RV.forEach(function (p, i) { var d = Math.hypot(p[0] - c[0], p[1] - c[1]); if (d < bd) { bd = d; bi = i; } });
+          var a = RV[Math.max(0, bi - 2)], b2 = RV[Math.min(RV.length - 1, bi + 2)], tl = Math.hypot(b2[0] - a[0], b2[1] - a[1]) || 1;
+          tx = (b2[0] - a[0]) / tl; ty = (b2[1] - a[1]) / tl; nx = -ty; ny = tx;
+          if ((c[0] - RV[bi][0]) * nx + (c[1] - RV[bi][1]) * ny < 0) { nx = -nx; ny = -ny; }
+          base = [RV[bi][0] + nx * Math.max(bd, 40), RV[bi][1] + ny * Math.max(bd, 40)];
+        }
+        off = focus ? 260 : (many ? 120 : 190);
+        var place = function (k) { var sx2 = base[0] + nx * (off + w / 2 * Math.abs(nx) + h / 2 * Math.abs(ny)) + tx * k, sy2 = base[1] + ny * (off + w / 2 * Math.abs(nx) + h / 2 * Math.abs(ny)) + ty * k;
+          return [Math.min(Math.max(sx2 - w / 2, rect[0] + 20), rect[0] + rect[2] - w - 20), Math.min(Math.max(sy2 - h / 2, rect[1] + 20), rect[1] + rect[3] - h - 20)]; };
+        var hit = function (q2) { return boxes.some(function (o) { return q2[0] < o[0] + o[2] + 10 && o[0] < q2[0] + w + 10 && q2[1] < o[1] + o[3] + 10 && o[1] < q2[1] + h + 10; }); };
+        var pos = place(0);
+        for (var it = 1; it < 40 && hit(pos); it++) pos = place((it % 2 ? 1 : -1) * Math.ceil(it / 2) * (Math.abs(tx) * (w + 12) + Math.abs(ty) * (h + 12)) * 0.9);
+        var bx = pos[0], by = pos[1];
         boxes.push([bx, by, w, h]);
         var ex = Math.min(Math.max(c[0], bx), bx + w), ey = Math.min(Math.max(c[1], by), by + h);
         ctx.strokeStyle = '#ff5fa2'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(ex, ey); ctx.stroke();
         ctx.fillStyle = '#ff5fa2'; ctx.beginPath(); ctx.arc(c[0], c[1], 7, 0, 7); ctx.fill();
         ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 3; rr(ctx, bx, by, w, h, 8); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore();
-        if (l2) { ctx.save(); rr(ctx, bx, by, w, h, 8); ctx.clip(); ctx.fillStyle = '#ffd9e6'; ctx.fillRect(bx, by + 52, w, h - 52); ctx.restore(); }
+        if (l2) { ctx.save(); rr(ctx, bx, by, w, h, 8); ctx.clip(); ctx.fillStyle = '#ffd9e6'; ctx.fillRect(bx, by + hb, w, h - hb); ctx.restore(); }
         rr(ctx, bx, by, w, h, 8); ctx.lineWidth = 4; ctx.strokeStyle = focus ? C.focus : '#e0115f'; ctx.stroke();
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = C.ink; ctx.font = 'bold 36px ' + FONT; ctx.fillText(l1, bx + w / 2, by + (l2 ? 28 : h / 2));
-        if (l2) { ctx.font = 'bold 30px ' + FONT; ctx.fillStyle = '#c4004a'; ctx.fillText(l2, bx + w / 2, by + 76); }
+        ctx.fillStyle = C.ink; ctx.font = 'bold ' + F1 + 'px ' + FONT; ctx.fillText(l1, bx + w / 2, by + (l2 ? hb / 2 + 2 : h / 2));
+        if (l2) { ctx.font = 'bold ' + F2 + 'px ' + FONT; ctx.fillStyle = '#c4004a'; ctx.fillText(l2, bx + w / 2, by + hb + (h - hb) / 2); }
       });
       // 과업연장·하천연장 치수선
       if (!focus && M.river.length > 1) {
         var yb = bboxOf(M.river.map(P)), RB = rect[0] + rect[2], BT = rect[1] + rect[3];
         var xr = Math.min(yb[2] + 150, RB - 260);
-        if (xr > RB - 760 && yb[3] > BT - 330) xr = Math.max(yb[0] - 150, rect[0] + 180);
+        if (xr > RB - 760 && yb[3] > BT - (FG ? 820 : 330)) xr = Math.max(yb[0] - 150, rect[0] + 180);
         var dim = function (x, y0, y1, color, t1, t2) {
           ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 4;
           ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
@@ -265,7 +310,9 @@ var LOCMAP = (function () {
       ctx.lineWidth = 28 * K; ctx.strokeStyle = '#fff'; ctx.strokeText('N', nx, ny - NL - 120 * K); ctx.fillStyle = 'rgb(225,20,30)'; ctx.fillText('N', nx, ny - NL - 120 * K);
       // 범례 + 축척 (한 패널, 오른쪽 아래)
       var mpp = 1 / sx * k, target = 420 * mpp, nice = [50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000].filter(function (v) { return v <= target; }).pop() || 50, sw = nice / mpp;
-      var items = [['line', C.river, '과업하천']]; if (M.basin.length) items.push(['dash', '#111', '유역경계']); items.push(['fill', C.zone, focus ? '해당 지구' : '분석지구']); if (focus) items.push(['fill2', 'rgba(255,255,255,0.3)', '기타 지구']);
+      var items = [['line', C.river, '과업하천']]; if (M.basin.length) items.push(['dash', '#111', '유역경계']);
+      if (FG) { items.push(['edge', '#e65c00', focus ? '해당 지구 경계' : '분석지구 경계']); DEPTH.forEach(function (q) { items.push(['sw', 'rgb(' + q[1].join(',') + ')', '침수심 ' + q[2]]); }); }
+      else items.push(['fill', C.zone, focus ? '해당 지구' : '분석지구']); if (focus) items.push(['fill2', 'rgba(255,255,255,0.3)', '기타 지구']);
       var pw = 640, rh2 = 60, ph = 70 + 52 + items.length * rh2 + 130, px = rect[0] + rect[2] - pw - 28, py = rect[1] + rect[3] - ph - 28;
       ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 14; rr(ctx, px, py, pw, ph, 12); ctx.fillStyle = 'rgba(255,255,255,0.96)'; ctx.fill(); ctx.restore();
       ctx.fillStyle = C.ink; ctx.font = 'bold 36px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('범    례', px + pw / 2, py + 40);
@@ -277,10 +324,12 @@ var LOCMAP = (function () {
         var y = ty2 + 52 + i * rh2 + rh2 / 2, x = tx + 50;
         ctx.strokeStyle = '#c9d0d8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(tx, ty2 + 52 + i * rh2); ctx.lineTo(tx + tw2, ty2 + 52 + i * rh2); ctx.stroke();
         ctx.save();
-        if (it[0] === 'fill' || it[0] === 'fill2') { ctx.fillStyle = it[0] === 'fill' ? 'rgba(72,214,104,0.8)' : '#cfd5dc'; ctx.fillRect(x, y - 16, 150, 32); ctx.strokeStyle = it[0] === 'fill' ? (focus ? C.focus : '#1f8f2a') : '#9aa3ad'; ctx.lineWidth = 3; ctx.strokeRect(x, y - 16, 150, 32); }
+        if (it[0] === 'sw') { ctx.fillStyle = it[1]; ctx.globalAlpha = 0.9; ctx.fillRect(x, y - 16, 150, 32); ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2; ctx.strokeRect(x, y - 16, 150, 32); }
+        else if (it[0] === 'edge') { ctx.strokeStyle = focus ? C.focus : it[1]; ctx.lineWidth = 6; ctx.strokeRect(x + 3, y - 13, 144, 26); }
+        else if (it[0] === 'fill' || it[0] === 'fill2') { ctx.fillStyle = it[0] === 'fill' ? 'rgba(255,140,0,0.8)' : '#cfd5dc'; ctx.fillRect(x, y - 16, 150, 32); ctx.strokeStyle = it[0] === 'fill' ? (focus ? C.focus : '#e65c00') : '#9aa3ad'; ctx.lineWidth = 3; ctx.strokeRect(x, y - 16, 150, 32); }
         else { ctx.strokeStyle = it[1]; ctx.lineWidth = it[0] === 'line' ? 12 : 6; if (it[0] === 'dash') ctx.setLineDash([30, 10, 6, 10]); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 150, y); ctx.stroke(); }
         ctx.restore();
-        ctx.fillStyle = C.ink; ctx.font = '32px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(it[2].split('').join(' '), tx + c1w + (tw2 - c1w) / 2, y);
+        ctx.fillStyle = C.ink; ctx.font = '32px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(it[2].length <= 5 ? it[2].split('').join(' ') : it[2], tx + c1w + (tw2 - c1w) / 2, y);
       });
       var sy0 = py + ph - 86, s0 = px + 36;
       ctx.strokeStyle = '#d6dbe1'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px + 24, sy0 - 26); ctx.lineTo(px + pw - 24, sy0 - 26); ctx.stroke();
@@ -294,6 +343,7 @@ var LOCMAP = (function () {
       ctx.fillStyle = '#7a8491'; ctx.font = '24px ' + FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('배경: ' + srcName, rect[0] + rect[2], rect[1] + rect[3] + 10);
       return keymap(ctx, [rect[0] + 28, rect[1] + 28, 440, 480], M, b, key);
     }).then(function () {
+      if (noTbl) return cv;
       // ---- 표 ----
       var ty = rect[1] + rect[3] + 70, Ts = rows.map(function (r) { return r.T; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; });
       ctx.fillStyle = C.ink; ctx.font = 'bold 36px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -312,6 +362,33 @@ var LOCMAP = (function () {
       ctx.strokeStyle = C.navy; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, y0 + hh + rows.length * rowH); ctx.lineTo(x0 + tw, y0 + hh + rows.length * rowH); ctx.stroke();
       return cv;
     });
+  }
+  // 지구가 많을 때 종합위치도와 따로 내는 '지구 현황표' (A4 세로 한 장)
+  function renderTable(info) {
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    var rows = info.rows, mg = 90, Ts = rows.map(function (r) { return r.T; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; });
+    ctx.fillStyle = C.navy; ctx.fillRect(mg, mg, W - 2 * mg, 14);
+    ctx.fillStyle = C.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.font = 'bold 84px ' + FONT;
+    ctx.fillText((info.river ? info.river + ' ' : '') + '치수경제성 분석 지구 현황', mg, mg + 130);
+    ctx.font = '44px ' + FONT; ctx.fillStyle = '#5b6573'; ctx.fillText('계획빈도 ' + (Ts.length === 1 ? Ts[0] + '년' : Ts.map(function (t) { return t + '년'; }).join('·')) + '  ·  지구 ' + rows.length + '개', mg, mg + 200);
+    var cols = [['지구명', 0.24], ['구간 (No.)', 0.2], ['계획연장 (m)', 0.12], ['공사비 (백만원)', 0.13], ['B/C', 0.1], ['통합지표', 0.1], ['우선순위', 0.11]];
+    var x0 = mg, tw = W - 2 * mg, y0 = mg + 260, hh = 84, rowH = Math.min(72, Math.floor((H - y0 - hh - mg - 20) / Math.max(1, rows.length)));
+    var fs = Math.max(22, Math.min(32, rowH - 26)), cx = x0;
+    ctx.fillStyle = C.navy; ctx.fillRect(x0, y0, tw, hh); ctx.textBaseline = 'middle';
+    cols.forEach(function (c) { var w = c[1] * tw; ctx.fillStyle = '#fff'; ctx.font = 'bold 30px ' + FONT; ctx.textAlign = 'center'; ctx.fillText(c[0], cx + w / 2, y0 + hh / 2); cx += w; });
+    rows.forEach(function (r, ri) {
+      var y = y0 + hh + ri * rowH, vals = [r.name, r.section || '-', f(r.len), f(r.cost), r.bc === null || r.bc === undefined ? '-' : f(r.bc, 3), r.score === undefined || r.score === null ? '-' : (+r.score).toFixed(2), r.rank || '-'];
+      ctx.fillStyle = ri % 2 ? '#f3f5f8' : '#fff'; ctx.fillRect(x0, y, tw, rowH);
+      cx = x0;
+      cols.forEach(function (c, i) { var w = c[1] * tw; ctx.fillStyle = i === 4 && r.bc >= 1 ? '#0a7a32' : C.ink; ctx.font = (i === 0 || (i === 4 && r.bc >= 1) ? 'bold ' : '') + fs + 'px ' + FONT; ctx.fillText(String(vals[i]), cx + w / 2, y + rowH / 2); cx += w; });
+      ctx.strokeStyle = '#dde2e8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, y + rowH); ctx.lineTo(x0 + tw, y + rowH); ctx.stroke();
+    });
+    ctx.strokeStyle = C.navy; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x0, y0 + hh + rows.length * rowH); ctx.lineTo(x0 + tw, y0 + hh + rows.length * rowH); ctx.stroke();
+    var ok = rows.filter(function (r) { return r.bc >= 1; }).length;
+    ctx.fillStyle = '#5b6573'; ctx.font = '30px ' + FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('B/C ≥ 1 : ' + ok + '개 지구 (초록 굵은 글씨)', x0, y0 + hh + rows.length * rowH + 24);
+    return Promise.resolve(cv);
   }
   function keymap(ctx, r, M, b, key) {
     var c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], span = 300000;
@@ -375,5 +452,5 @@ var LOCMAP = (function () {
       ctx.restore();
     });
   }
-  return { render: render, parseOverlay: parseOverlay };
+  return { render: render, renderTable: renderTable, parseOverlay: parseOverlay };
 })();
