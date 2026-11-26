@@ -1414,13 +1414,14 @@ var LOCMAP = (function () {
     var noTbl = opt.noTable || (!focus && rows.length > 10);
     var mg = 90, headH = 230, rowH = rows.length > 14 ? 56 : 68, tblH = noTbl ? 0 : 70 + 84 + rowH * rows.length + 40;
     var rect = [mg, mg + headH, W - 2 * mg, H - 2 * mg - headH - (noTbl ? 50 : tblH + 40)];
-    var Z = merge(M.dist), G = opt.grid, FG = G && G.depth && G.depth[opt.T] ? floodStats(G, opt.T, M.tm) : null;
+    var ONLY = opt.only || null, inc = function (d) { return !ONLY || ONLY.indexOf(d) >= 0; };
+    var Z = merge(M.dist).filter(function (q) { return inc(q.d); }), G = opt.grid, FG = G && G.depth && G.depth[opt.T] ? floodStats(G, opt.T, M.tm) : null;
     if (FG && !Object.keys(FG.st).length) FG = null;
     // 범위
     var dp = [];
-    if (FG) Object.keys(FG.st).forEach(function (d) { if (!focus || d === focus) dp = dp.concat(FG.st[d].mb); });
+    if (FG) Object.keys(FG.st).forEach(function (d) { if (inc(d) && (!focus || d === focus)) dp = dp.concat(FG.st[d].mb); });
     if (!dp.length) Z.forEach(function (q) { if (!focus || q.d === focus) q.polys.forEach(function (rs) { dp = dp.concat(rs[0]); }); });
-    if (!focus) dp = dp.concat(M.river);
+    if (!focus && !(ONLY && dp.length)) dp = dp.concat(M.river);   // 일부 지구만 그릴 땐 그 지구들에 맞춰 확대
     if (!dp.length) dp = M.river.slice();
     var b = bboxOf(dp);
     if (!focus && M.basin.length) { var bb = bboxOf([].concat.apply([], M.basin)); if ((bb[2] - bb[0]) * (bb[3] - bb[1]) < 4 * (b[2] - b[0]) * (b[3] - b[1])) b = [Math.min(b[0], bb[0]), Math.min(b[1], bb[1]), Math.max(b[2], bb[2]), Math.max(b[3], bb[3])]; }
@@ -1446,9 +1447,9 @@ var LOCMAP = (function () {
       if (opt.overlay) drawOverlay(ctx, opt.overlay, P, M.tm, rect);   // 기존 위치도(삽도) 선
       // 분석지구: 침수심 격자가 있으면 계획빈도 침수 범위(지형을 따라), 없으면 구획 다각형
       if (FG) {
-        var m1 = maskCanvas(G, opt.T, FG, function (d) { return !focus || d === focus ? 1 : 2; }, 1), m2 = focus ? maskCanvas(G, opt.T, FG, function (d) { return d === focus ? 1 : 2; }, 2) : null;
+        var m1 = maskCanvas(G, opt.T, FG, function (d) { return !inc(d) ? 0 : !focus || d === focus ? 1 : 2; }, 1), m2 = focus ? maskCanvas(G, opt.T, FG, function (d) { return !inc(d) ? 0 : d === focus ? 1 : 2; }, 2) : null;
         if (m2) drawFlood(ctx, rect, G, m2, P, M.tm, 'rgba(255,255,255,0.22)', 'rgba(255,255,255,0.75)', 3);
-        var dc = depthCanvas(G, opt.T, FG, function (d) { return !focus || d === focus ? 1 : 2; });
+        var dc = depthCanvas(G, opt.T, FG, function (d) { return !inc(d) ? 0 : !focus || d === focus ? 1 : 2; });
         if (dc) drawGrid(ctx, rect, G, dc, P, M.tm, 0.82);                 // 침수심 단계(주황)
         if (m1) drawFlood(ctx, rect, G, m1, P, M.tm, 'rgba(0,0,0,0)', focus ? C.focus : '#e65c00', focus ? 6 : 4);   // 지구 경계
       } else Z.forEach(function (q) {
@@ -1468,6 +1469,8 @@ var LOCMAP = (function () {
       var sts = M.stations.map(function (s, i) { var m = /(\d+)\s*\+\s*(\d+)/.exec(s.key), km = m && m[2].length >= 3; return { i: i, p: RV[i], key: s.key, m: m ? (km ? +m[1] * 1000 + +m[2] : null) : null }; }).filter(function (s) { return s.p && inR(s.p); });
       var pick = sts.filter(function (s) { return s.m !== null && s.m % 500 === 0; });
       if (pick.length < 3) { pick = []; var want = focus ? 4 : 6; for (var i = 0; i < want && sts.length; i++) { var s0 = sts[Math.round(i * (sts.length - 1) / Math.max(1, want - 1))]; if (pick.indexOf(s0) < 0) pick.push(s0); } }
+      var seenK = {}, kept = [];   // 같은 측점(양안 측선 등)·너무 가까운 것은 하나만
+      pick = pick.filter(function (q) { if (seenK[q.key]) return false; if (kept.some(function (o) { return Math.hypot(o.p[0] - q.p[0], o.p[1] - q.p[1]) < 140; })) return false; seenK[q.key] = 1; kept.push(q); return true; });
       pick.forEach(function (s) {
         var a = ang(s.i), nx0 = -Math.sin(a), ny0 = Math.cos(a);
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(s.p[0] - nx0 * 22, s.p[1] - ny0 * 22); ctx.lineTo(s.p[0] + nx0 * 22, s.p[1] + ny0 * 22); ctx.stroke();
@@ -1544,7 +1547,13 @@ var LOCMAP = (function () {
           rr(ctx, x - w / 2, by, w, h, 10); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
           ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t1, x, by + 32); ctx.font = '34px ' + FONT; ctx.fillText(t2, x, by + 76);
         };
-        if (info.taskLen) dim(xr, yb[1], yb[3], C.dim, '과업연장', 'L = ' + info.taskLen + ' km');
+        var inView = yb[1] >= rect[1] + 30 && yb[3] <= rect[1] + rect[3] - 30;
+        if (info.taskLen && inView) dim(xr, yb[1], yb[3], C.dim, '과업연장', 'L = ' + info.taskLen + ' km');
+        else if (info.taskLen) {   // 하천이 지도 밖으로 이어지면 치수선 대신 글상자
+          ctx.font = 'bold 36px ' + FONT; var t1 = '과업연장', t2 = 'L = ' + info.taskLen + ' km', bw = Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + 60, bx0 = rect[0] + rect[2] - bw - 40, by0 = rect[1] + 420;
+          rr(ctx, bx0, by0, bw, 108, 10); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = C.dim; ctx.stroke();
+          ctx.fillStyle = C.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t1, bx0 + bw / 2, by0 + 32); ctx.font = '34px ' + FONT; ctx.fillText(t2, bx0 + bw / 2, by0 + 76);
+        }
         if (info.riverLen) dim(Math.min(xr + 260, RB - 140), Math.max(rect[1] + 60, yb[1] - 110), Math.min(BT - 60, yb[3] + 110), '#c81e1e', '하천연장', 'L = ' + info.riverLen + ' km');
       }
       ctx.restore();
@@ -3572,15 +3581,39 @@ function autoDistricts(secs, contours, points, basin){
     var ws = Object.keys(x.w).map(function(k){ return x.w[k]; }).filter(isFinite); x.ws = ws.length ? ws.reduce(function(a, b){ return a + b; }, 0) / ws.length : NaN;
   });
   // 측점이 커질수록 홍수위가 높아지면(상류로 측점 증가) 하류 = 측점 감소 방향
-  var up = 0; for (var i = 1; i < S.length; i++) if (isFinite(S[i].ws) && isFinite(S[i - 1].ws)) up += S[i].ws > S[i - 1].ws ? 1 : -1;
+  // 흐름 방향: 같은 홍수위(평탄 구간)는 세지 않고, 양 끝 1/4 구간 평균 홍수위도 비교
+  var up = 0; for (var i = 1; i < S.length; i++) if (isFinite(S[i].ws) && isFinite(S[i - 1].ws)) { var dw = S[i].ws - S[i - 1].ws; up += dw > 0.005 ? 1 : dw < -0.005 ? -1 : 0; }
+  var wq = S.filter(function(x){ return isFinite(x.ws); }), nq = Math.max(1, Math.floor(wq.length / 4));
+  if (wq.length >= 4) { var avg = function(a){ return a.reduce(function(t, x){ return t + x.ws; }, 0) / a.length; }, dEnd = avg(wq.slice(-nq)) - avg(wq.slice(0, nq)); if (Math.abs(dEnd) > 0.2) up = dEnd > 0 ? Math.abs(up) + 1 : -Math.abs(up) - 1; }
   var upward = up >= 0;
+  var ms = S.map(function(x){ return x.mid; });
+  for (var pass = 0; pass < 3; pass++) ms = ms.map(function(p, i){ if (i === 0 || i === ms.length - 1) return p; var sx = 0, sy = 0, n = 0; for (var j = Math.max(0, i - 2); j <= Math.min(ms.length - 1, i + 2); j++) { sx += ms[j][0]; sy += ms[j][1]; n++; } return [sx / n, sy / n]; });
+  S.forEach(function(x, i){ x.ms = ms[i]; });
   S.forEach(function(x, i){
-    var a = S[Math.max(0, i - 1)].mid, b = S[Math.min(S.length - 1, i + 1)].mid, u = [b[0] - a[0], b[1] - a[1]];
-    var dv = upward ? [-u[0], -u[1]] : u;     // 하류 방향
-    var leftOf = function(e){ return dv[0] * (e[1] - x.mid[1]) - dv[1] * (e[0] - x.mid[0]) > 0; };
-    var far = function(e){ var dx = e[0] - x.mid[0], dy = e[1] - x.mid[1], L = Math.hypot(dx, dy) || 1, k = (L + 200) / L; return [x.mid[0] + dx * k, x.mid[1] + dy * k]; };
+    var a = S[Math.max(0, i - 1)].ms, b = S[Math.min(S.length - 1, i + 1)].ms, u = [b[0] - a[0], b[1] - a[1]];
+    var dv = upward ? [-u[0], -u[1]] : u;     // 하류 방향(펴진 중심선 기준)
+    var dl = Math.hypot(dv[0], dv[1]) || 1; x.nL = [-dv[1] / dl, dv[0] / dl]; x.nR = [-x.nL[0], -x.nL[1]];   // 하류를 보고 왼쪽·오른쪽
+    var leftOf = function(e){ return dv[0] * (e[1] - x.ms[1]) - dv[1] * (e[0] - x.ms[0]) > 0; };
+    var far = function(e){ var dx = e[0] - x.ms[0], dy = e[1] - x.ms[1], L = Math.hypot(dx, dy) || 1, k = (L + 200) / L; return [x.ms[0] + dx * k, x.ms[1] + dy * k]; };
     x.L = far(leftOf(x.e0) ? x.e0 : x.e1); x.R = far(leftOf(x.e0) ? x.e1 : x.e0);
+    // 둑마루: 하도 중심에서 그 안 쪽으로 걸어가며 가장 높은 점 — 지나서 0.5 m 이상 내려가고, 하도보다 1 m 이상 높을 때만
+    var crest = function(e){
+      if (!dem) return null;
+      var dx = e[0] - x.mid[0], dy = e[1] - x.mid[1], L = Math.min(Math.hypot(dx, dy), 400); if (L < 10) return null;
+      var ux = dx / Math.hypot(dx, dy), uy = dy / Math.hypot(dx, dy), z0 = dem.at(x.mid[0], x.mid[1]), zm = -Infinity, pm = null;
+      for (var t = 2; t <= L; t += 2) {
+        var q = [x.mid[0] + ux * t, x.mid[1] + uy * t], z = dem.at(q[0], q[1]); if (!isFinite(z)) continue;
+        if (z > zm) { zm = z; pm = q; }
+        else if (zm - z >= 0.5 && isFinite(z0) && zm - z0 >= 1.0) return pm;
+      }
+      return null;
+    };
+    var eL = leftOf(x.e0) ? x.e0 : x.e1, eR = leftOf(x.e0) ? x.e1 : x.e0;
+    x.cL = crest(eL); x.cR = crest(eR);
+    var sideOk = function(p, n){ return p && ((p[0] - x.ms[0]) * n[0] + (p[1] - x.ms[1]) * n[1]) > 0; };
+    if (!sideOk(x.cL, x.nL)) x.cL = null; if (!sideOk(x.cR, x.nR)) x.cR = null;
   });
+  var nCrest = S.filter(function(x){ return x.cL || x.cR; }).length;
   var out = [];
   P.districts.forEach(function(d){
     var rg = rangeOf(d.section); if (!rg) { log('⚠ ' + d.name + ': 구간(측점)을 읽지 못해 자동 구획을 건너뜀'); return; }
@@ -3591,18 +3624,23 @@ function autoDistricts(secs, contours, points, basin){
     if (!inR.length || inR[inR.length - 1].d < hi - 0.5) { if (after) inR.push(after); }
     if (inR.length < 2) { log('⚠ ' + d.name + ': 구간 안 측선이 부족해 자동 구획을 건너뜀'); return; }
     var sides = /좌/.test(d.bank) ? ['L'] : /우/.test(d.bank) ? ['R'] : ['L', 'R'];
-    var ring = sides.length === 2 ? inR.map(function(x){ return x.L; }).concat(inR.slice().reverse().map(function(x){ return x.R; }))
-      : inR.map(function(x){ return x.mid; }).concat(inR.slice().reverse().map(function(x){ return x[sides[0]]; }));
+    sides.forEach(function(sd){
+    var ring = inR.map(function(x){ return x['c' + sd] || x.ms; }).concat(inR.slice().reverse().map(function(x){ return x[sd]; }));   // 고수부지(둑마루 안쪽) 제외
     ring.push(ring[0]);
     var f = {type:'Feature', properties:{d:d.name}, geometry:{type:'Polygon', coordinates:[ring]}};
+    // 중심선 기준 그 안 쪽만(우안 지구는 우안 침수만)
+    var half = inR.map(function(x){ return x.ms; }).concat(inR.slice().reverse().map(function(x){ var n = x['n' + sd]; return [x.ms[0] + n[0] * 3000, x.ms[1] + n[1] * 3000]; }));
+    half.push(half[0]);
+    try { var hc = turf.intersect(f, {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[half]}}); if (hc) { hc.properties = {d:d.name}; f = hc.geometry.type === 'Polygon' ? hc : {type:'Feature', properties:{d:d.name}, geometry:{type:'Polygon', coordinates:hc.geometry.coordinates.sort(function(a, b){ return polyArea(b[0]) - polyArea(a[0]); })[0]}}; } } catch (e) {}
     if (basin && basin.length) {
       var clipped = null;
       basin.forEach(function(br){ try { var I = turf.intersect(f, {type:'Feature', properties:{}, geometry:{type:'Polygon', coordinates:[br]}}); if (I) clipped = clipped ? turf.union(clipped, I) : I; } catch (e) {} });
       if (clipped) { (clipped.geometry.type === 'Polygon' ? [clipped.geometry.coordinates] : clipped.geometry.coordinates).forEach(function(rr){ var g = {type:'Feature', properties:{d:d.name}, geometry:{type:'Polygon', coordinates:rr}}; g.bb = turf.bbox(g); out.push(g); }); return; }
     }
     f.bb = turf.bbox(f); out.push(f);
+    });
   });
-  log('지구 자동 구획(지구계가 없어 측선·구간·안별로 만듦 — 하도 포함이라 침수면적이 실제 지구계보다 크게 나올 수 있음): ' + out.length + '개 영역(' + P.districts.length + '개 지구, 측선 ' + S.length + '개' + (basin ? ', 유역계로 자름' : '') + ', 하류=' + (upward ? '측점 감소' : '측점 증가') + ' 방향)');
+  log('지구 자동 구획(지구계가 없어 측선·구간·안별로 만듦 — 둑마루 바깥만, 고수부지 제외: 둑마루를 찾은 측선 ' + nCrest + '/' + S.length + '개): ' + out.length + '개 영역(' + P.districts.length + '개 지구, 측선 ' + S.length + '개' + (basin ? ', 유역계로 자름' : '') + ', 하류=' + (upward ? '측점 감소' : '측점 증가') + ' 방향)');
   return out;
 }
 // K-FRM 인벤토리 → 분석 좌표계
@@ -3854,6 +3892,12 @@ function mapsJob(fmt){
   var res = OUT.results.filter(function(r){ return !r.error; }), rk = {}; AHP.rows.forEach(function(a){ rk[a.name] = a; });
   var rows = res.map(function(r){ var x = designOf(r), e = x.e, a = rk[r.district.name] || {}, d = r.district;
     return {name:d.name, len:(d.lenLevee || 0) + (d.lenReinf || 0) + (d.lenRevet || 0), cost:e ? e.total : null, bc:e ? e.BC : null, score:a.score, rank:a.rank, T:x.T, section:d.section}; });
+  // 위치도에는 보축지구를 넣지 않음(축제 연장 없이 보축·호안만인 지구)
+  var isReinf = function(d){ return !((d.lenLevee || 0) > 0) && ((d.lenReinf || 0) > 0 || (d.lenRevet || 0) > 0 || /보축/.test(d.name)); };
+  var keep = res.filter(function(r){ return !isReinf(r.district); }).map(function(r){ return r.district.name; });
+  if (!keep.length) keep = rows.map(function(r){ return r.name; });
+  if (keep.length < rows.length) log('위치도: 보축지구 ' + (rows.length - keep.length) + '개는 빼고 축제지구 ' + keep.length + '개만 표시합니다.');
+  rows = rows.filter(function(r){ return keep.indexOf(r.name) >= 0; });
   var d0 = P.districts[0] || {}, emds = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, a){ return n && a.indexOf(n) === i; });
   var rl = 0; for (var i = 1; i < KMAP.river.length; i++) rl += Math.hypot(KMAP.river[i][0] - KMAP.river[i - 1][0], KMAP.river[i][1] - KMAP.river[i - 1][1]);
   // 과업연장: 측점이 '3+139'처럼 km 표기면 (최대−최소 측점), 아니면 하천선 길이
@@ -3873,8 +3917,8 @@ function mapsJob(fmt){
   var enc = function(cv){ return new Promise(function(ok){ cv.toBlob(function(bl){ ok({blob:bl, w:cv.width, h:cv.height}); }, fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.88); }); };
   var out = [], ext = fmt === 'jpg' ? '.jpg' : '.png';
   log('위성 위치도 그리는 중… (종합 1장 + 지구별 ' + names.length + '장)');
-  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl}).then(enc).then(function(r){ out.push({name:'종합', file:'00_' + (river ? river + '_' : '') + '종합위치도' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 종합위치도', blob:r.blob, w:r.w, h:r.h}); });
-  if (CUR.mapEach) names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
+  var chain = LOCMAP.render(KMAP, info, {key:apiv('vkey'), grid:KGRID, T:mapT, overlay:ovl, only:keep}).then(enc).then(function(r){ out.push({name:'종합', file:'00_' + (river ? river + '_' : '') + '종합위치도' + ext, caption:(river ? river + ' ' : '') + '치수경제성 분석 지구 종합위치도', blob:r.blob, w:r.w, h:r.h}); });
+  if (CUR.mapEach) names.forEach(function(n, i){ chain = chain.then(function(){ prog(10 + 85 * (i + 1) / names.length, '지구별 위치도 ' + (i + 1) + '/' + names.length); return LOCMAP.render(KMAP, info, {key:apiv('vkey'), focus:n, grid:KGRID, T:mapT, overlay:ovl, only:keep}); }).then(enc).then(function(r){ out.push({name:n, file:('0' + (i + 1)).slice(-2) + '_' + n.replace(/[\/:*?"<>|]/g, '_') + '_위치도' + ext, caption:n + ' 위치도', blob:r.blob, w:r.w, h:r.h}); }); });
   return chain.then(function(){
     log('위성 위치도 ' + out.length + '장 완료 — 과업연장 ' + (info.taskLen ? info.taskLen + 'km' + (CUR.taskLen ? '' : '(측선 중심선 자동)') : '없음') + (info.riverLen ? ', 하천연장 ' + info.riverLen + 'km' : ', 하천연장은 설정에 넣으면 표기'));
     return out;

@@ -159,13 +159,14 @@ var LOCMAP = (function () {
     var noTbl = opt.noTable || (!focus && rows.length > 10);
     var mg = 90, headH = 230, rowH = rows.length > 14 ? 56 : 68, tblH = noTbl ? 0 : 70 + 84 + rowH * rows.length + 40;
     var rect = [mg, mg + headH, W - 2 * mg, H - 2 * mg - headH - (noTbl ? 50 : tblH + 40)];
-    var Z = merge(M.dist), G = opt.grid, FG = G && G.depth && G.depth[opt.T] ? floodStats(G, opt.T, M.tm) : null;
+    var ONLY = opt.only || null, inc = function (d) { return !ONLY || ONLY.indexOf(d) >= 0; };
+    var Z = merge(M.dist).filter(function (q) { return inc(q.d); }), G = opt.grid, FG = G && G.depth && G.depth[opt.T] ? floodStats(G, opt.T, M.tm) : null;
     if (FG && !Object.keys(FG.st).length) FG = null;
     // 범위
     var dp = [];
-    if (FG) Object.keys(FG.st).forEach(function (d) { if (!focus || d === focus) dp = dp.concat(FG.st[d].mb); });
+    if (FG) Object.keys(FG.st).forEach(function (d) { if (inc(d) && (!focus || d === focus)) dp = dp.concat(FG.st[d].mb); });
     if (!dp.length) Z.forEach(function (q) { if (!focus || q.d === focus) q.polys.forEach(function (rs) { dp = dp.concat(rs[0]); }); });
-    if (!focus) dp = dp.concat(M.river);
+    if (!focus && !(ONLY && dp.length)) dp = dp.concat(M.river);   // 일부 지구만 그릴 땐 그 지구들에 맞춰 확대
     if (!dp.length) dp = M.river.slice();
     var b = bboxOf(dp);
     if (!focus && M.basin.length) { var bb = bboxOf([].concat.apply([], M.basin)); if ((bb[2] - bb[0]) * (bb[3] - bb[1]) < 4 * (b[2] - b[0]) * (b[3] - b[1])) b = [Math.min(b[0], bb[0]), Math.min(b[1], bb[1]), Math.max(b[2], bb[2]), Math.max(b[3], bb[3])]; }
@@ -191,9 +192,9 @@ var LOCMAP = (function () {
       if (opt.overlay) drawOverlay(ctx, opt.overlay, P, M.tm, rect);   // 기존 위치도(삽도) 선
       // 분석지구: 침수심 격자가 있으면 계획빈도 침수 범위(지형을 따라), 없으면 구획 다각형
       if (FG) {
-        var m1 = maskCanvas(G, opt.T, FG, function (d) { return !focus || d === focus ? 1 : 2; }, 1), m2 = focus ? maskCanvas(G, opt.T, FG, function (d) { return d === focus ? 1 : 2; }, 2) : null;
+        var m1 = maskCanvas(G, opt.T, FG, function (d) { return !inc(d) ? 0 : !focus || d === focus ? 1 : 2; }, 1), m2 = focus ? maskCanvas(G, opt.T, FG, function (d) { return !inc(d) ? 0 : d === focus ? 1 : 2; }, 2) : null;
         if (m2) drawFlood(ctx, rect, G, m2, P, M.tm, 'rgba(255,255,255,0.22)', 'rgba(255,255,255,0.75)', 3);
-        var dc = depthCanvas(G, opt.T, FG, function (d) { return !focus || d === focus ? 1 : 2; });
+        var dc = depthCanvas(G, opt.T, FG, function (d) { return !inc(d) ? 0 : !focus || d === focus ? 1 : 2; });
         if (dc) drawGrid(ctx, rect, G, dc, P, M.tm, 0.82);                 // 침수심 단계(주황)
         if (m1) drawFlood(ctx, rect, G, m1, P, M.tm, 'rgba(0,0,0,0)', focus ? C.focus : '#e65c00', focus ? 6 : 4);   // 지구 경계
       } else Z.forEach(function (q) {
@@ -213,6 +214,8 @@ var LOCMAP = (function () {
       var sts = M.stations.map(function (s, i) { var m = /(\d+)\s*\+\s*(\d+)/.exec(s.key), km = m && m[2].length >= 3; return { i: i, p: RV[i], key: s.key, m: m ? (km ? +m[1] * 1000 + +m[2] : null) : null }; }).filter(function (s) { return s.p && inR(s.p); });
       var pick = sts.filter(function (s) { return s.m !== null && s.m % 500 === 0; });
       if (pick.length < 3) { pick = []; var want = focus ? 4 : 6; for (var i = 0; i < want && sts.length; i++) { var s0 = sts[Math.round(i * (sts.length - 1) / Math.max(1, want - 1))]; if (pick.indexOf(s0) < 0) pick.push(s0); } }
+      var seenK = {}, kept = [];   // 같은 측점(양안 측선 등)·너무 가까운 것은 하나만
+      pick = pick.filter(function (q) { if (seenK[q.key]) return false; if (kept.some(function (o) { return Math.hypot(o.p[0] - q.p[0], o.p[1] - q.p[1]) < 140; })) return false; seenK[q.key] = 1; kept.push(q); return true; });
       pick.forEach(function (s) {
         var a = ang(s.i), nx0 = -Math.sin(a), ny0 = Math.cos(a);
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(s.p[0] - nx0 * 22, s.p[1] - ny0 * 22); ctx.lineTo(s.p[0] + nx0 * 22, s.p[1] + ny0 * 22); ctx.stroke();
@@ -289,7 +292,13 @@ var LOCMAP = (function () {
           rr(ctx, x - w / 2, by, w, h, 10); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
           ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t1, x, by + 32); ctx.font = '34px ' + FONT; ctx.fillText(t2, x, by + 76);
         };
-        if (info.taskLen) dim(xr, yb[1], yb[3], C.dim, '과업연장', 'L = ' + info.taskLen + ' km');
+        var inView = yb[1] >= rect[1] + 30 && yb[3] <= rect[1] + rect[3] - 30;
+        if (info.taskLen && inView) dim(xr, yb[1], yb[3], C.dim, '과업연장', 'L = ' + info.taskLen + ' km');
+        else if (info.taskLen) {   // 하천이 지도 밖으로 이어지면 치수선 대신 글상자
+          ctx.font = 'bold 36px ' + FONT; var t1 = '과업연장', t2 = 'L = ' + info.taskLen + ' km', bw = Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + 60, bx0 = rect[0] + rect[2] - bw - 40, by0 = rect[1] + 420;
+          rr(ctx, bx0, by0, bw, 108, 10); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = C.dim; ctx.stroke();
+          ctx.fillStyle = C.dim; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t1, bx0 + bw / 2, by0 + 32); ctx.font = '34px ' + FONT; ctx.fillText(t2, bx0 + bw / 2, by0 + 76);
+        }
         if (info.riverLen) dim(Math.min(xr + 260, RB - 140), Math.max(rect[1] + 60, yb[1] - 110), Math.min(BT - 60, yb[3] + 110), '#c81e1e', '하천연장', 'L = ' + info.riverLen + ' km');
       }
       ctx.restore();
