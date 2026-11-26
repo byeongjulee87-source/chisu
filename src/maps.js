@@ -216,43 +216,44 @@ var LOCMAP = (function () {
       if (pick.length < 3) { pick = []; var want = focus ? 4 : 6; for (var i = 0; i < want && sts.length; i++) { var s0 = sts[Math.round(i * (sts.length - 1) / Math.max(1, want - 1))]; if (pick.indexOf(s0) < 0) pick.push(s0); } }
       var seenK = {}, kept = [];   // 같은 측점(양안 측선 등)·너무 가까운 것은 하나만
       pick = pick.filter(function (q) { if (seenK[q.key]) return false; if (kept.some(function (o) { return Math.hypot(o.p[0] - q.p[0], o.p[1] - q.p[1]) < 140; })) return false; seenK[q.key] = 1; kept.push(q); return true; });
-      var STP = [];
-      pick.forEach(function (s) {
-        var a = ang(s.i), nx0 = -Math.sin(a), ny0 = Math.cos(a);
-        STP.push(s.p, [s.p[0] + nx0 * 44, s.p[1] + ny0 * 44], [s.p[0] + nx0 * 44 + Math.cos(a) * 70, s.p[1] + ny0 * 44 + Math.sin(a) * 70], [s.p[0] + nx0 * 44 - Math.cos(a) * 70, s.p[1] + ny0 * 44 - Math.sin(a) * 70]);
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(s.p[0] - nx0 * 22, s.p[1] - ny0 * 22); ctx.lineTo(s.p[0] + nx0 * 22, s.p[1] + ny0 * 22); ctx.stroke();
-        ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.stroke();
-        var t = 'NO.' + s.key, ta = a; if (ta > Math.PI / 2) ta -= Math.PI; if (ta < -Math.PI / 2) ta += Math.PI;
-        ctx.save(); ctx.translate(s.p[0] + nx0 * 44, s.p[1] + ny0 * 44); ctx.rotate(ta);
-        halo(ctx, t, 0, 0, 28, '#ffffff', true); ctx.restore();
-      });
-      // 하천명 원문자 (방·월·천처럼 하천을 따라)
-      var rname = String(info.river || '').replace(/\s/g, '');
+      // 하천명 원문자 자리: 지도에 보이는 하천 구간(가장 긴 연속 구간)에 고르게(남·창·천 → 창은 남과 천 한가운데), 하천선 위
+      var rname = String(info.river || '').replace(/\s/g, ''), NAMES = [];
       if (rname && RV.length > 1) {
-        // 지도에 보이는 하천 구간(가장 긴 연속 구간)에만 고르게, 하천선 위에
         var runs = [], cur = [];
         RV.forEach(function (p) { if (p[0] > rect[0] + 70 && p[0] < rect[0] + rect[2] - 70 && p[1] > rect[1] + 70 && p[1] < rect[1] + rect[3] - 70) cur.push(p); else { if (cur.length) runs.push(cur); cur = []; } });
         if (cur.length) runs.push(cur);
         var VR = runs.sort(function (a, b) { return b.length - a.length; })[0] || RV;
         // 읽는 순서: 남북으로 흐르면 위→아래, 동서로 흐르면 왼→오른
         if (VR.length > 1) { var ddx = VR[VR.length - 1][0] - VR[0][0], ddy = VR[VR.length - 1][1] - VR[0][1]; if (Math.abs(ddy) >= Math.abs(ddx) ? ddy < 0 : ddx < 0) VR = VR.slice().reverse(); }
-        var cum = [0]; for (var q = 1; q < VR.length; q++) cum.push(cum[q - 1] + Math.hypot(VR[q][0] - VR[q - 1][0], VR[q][1] - VR[q - 1][1]));
-        var LL = cum[cum.length - 1], ch = rname.split('');
-        ch.forEach(function (c, j) {
-          var d0 = LL * (j + 1) / (ch.length + 1), d = d0, q = 1;
-          var at = function (dd) { var qq = 1; while (qq < cum.length - 1 && cum[qq] < dd) qq++; var ff = (dd - cum[qq - 1]) / ((cum[qq] - cum[qq - 1]) || 1); return [VR[qq - 1][0] + ff * (VR[qq][0] - VR[qq - 1][0]), VR[qq - 1][1] + ff * (VR[qq][1] - VR[qq - 1][1])]; };
-          var clear = function (pt) { return !STP.some(function (o) { return Math.hypot(o[0] - pt[0], o[1] - pt[1]) < 110; }); };
-          for (var tr = 1; tr < 24 && !clear(at(d)); tr++) d = Math.min(LL, Math.max(0, d0 + (tr % 2 ? 1 : -1) * Math.ceil(tr / 2) * 60));
-          while (q < cum.length - 1 && cum[q] < d) q++;
-          if (VR.length < 2) return;
-          var f = (d - cum[q - 1]) / ((cum[q] - cum[q - 1]) || 1), x = VR[q - 1][0] + f * (VR[q][0] - VR[q - 1][0]), y = VR[q - 1][1] + f * (VR[q][1] - VR[q - 1][1]);
-          if (!inR([x, y])) return;
-          var g = ctx.createRadialGradient(x - 12, y - 14, 4, x, y, 42); g.addColorStop(0, '#7f9bff'); g.addColorStop(1, '#1530b8');
-          ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3; ctx.beginPath(); ctx.arc(x, y, 40, 0, 7); ctx.fillStyle = g; ctx.fill(); ctx.restore();
-          ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 40, 0, 7); ctx.stroke();
-          ctx.fillStyle = '#fff'; ctx.font = 'bold 44px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(c, x, y + 2);
-        });
+        if (VR.length > 1) {
+          var cum = [0]; for (var q = 1; q < VR.length; q++) cum.push(cum[q - 1] + Math.hypot(VR[q][0] - VR[q - 1][0], VR[q][1] - VR[q - 1][1]));
+          var LL = cum[cum.length - 1], chs = rname.split('');
+          chs.forEach(function (c, j) {
+            var d = LL * (j + 1) / (chs.length + 1), qq = 1; while (qq < cum.length - 1 && cum[qq] < d) qq++;
+            var ff = (d - cum[qq - 1]) / ((cum[qq] - cum[qq - 1]) || 1), pt = [VR[qq - 1][0] + ff * (VR[qq][0] - VR[qq - 1][0]), VR[qq - 1][1] + ff * (VR[qq][1] - VR[qq - 1][1])];
+            if (inR(pt)) NAMES.push({ c: c, p: pt });
+          });
+        }
       }
+      // 측점: 원문자와 겹치는 것은 빼고 그림(하천명이 우선)
+      pick.forEach(function (s) {
+        var a = ang(s.i), nx0 = -Math.sin(a), ny0 = Math.cos(a), lc = [s.p[0] + nx0 * 44, s.p[1] + ny0 * 44];
+        var near = NAMES.some(function (n) { return [s.p, lc, [lc[0] + Math.cos(a) * 70, lc[1] + Math.sin(a) * 70], [lc[0] - Math.cos(a) * 70, lc[1] - Math.sin(a) * 70]].some(function (o) { return Math.hypot(o[0] - n.p[0], o[1] - n.p[1]) < 100; }); });
+        if (near) return;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(s.p[0] - nx0 * 22, s.p[1] - ny0 * 22); ctx.lineTo(s.p[0] + nx0 * 22, s.p[1] + ny0 * 22); ctx.stroke();
+        ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.stroke();
+        var t = 'NO.' + s.key, ta = a; if (ta > Math.PI / 2) ta -= Math.PI; if (ta < -Math.PI / 2) ta += Math.PI;
+        ctx.save(); ctx.translate(lc[0], lc[1]); ctx.rotate(ta);
+        halo(ctx, t, 0, 0, 28, '#ffffff', true); ctx.restore();
+      });
+      // 하천명 원문자 그리기
+      NAMES.forEach(function (n) {
+        var x = n.p[0], y = n.p[1];
+        var g = ctx.createRadialGradient(x - 12, y - 14, 4, x, y, 42); g.addColorStop(0, '#7f9bff'); g.addColorStop(1, '#1530b8');
+        ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3; ctx.beginPath(); ctx.arc(x, y, 40, 0, 7); ctx.fillStyle = g; ctx.fill(); ctx.restore();
+        ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 40, 0, 7); ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 44px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(n.c, x, y + 2);
+      });
       // 지구 이름표
       var boxes = [[rect[0] + 20, rect[1] + 20, 460, 500], [rect[0] + rect[2] - 330, rect[1], 330, 380], [rect[0] + rect[2] - 690, rect[1] + rect[3] - (FG ? 800 : 520), 690, FG ? 800 : 520]], cen = function (polys) { var p = bboxOf([].concat.apply([], polys.map(function (rs) { return rs[0]; }))); return [(p[0] + p[2]) / 2, (p[1] + p[3]) / 2]; };
       var rc = M.river.length ? P(cen([[M.river]])) : [rect[0] + rect[2] / 2, rect[1] + rect[3] / 2];
