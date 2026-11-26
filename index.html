@@ -2825,7 +2825,9 @@ function addFiles(list){
         var isInput = wb.SheetNames.some(function(n){ return /지구|공사비|단가|개수계획/.test(n); });
         ix.wb = wb; ix.role = isInput ? 'input' : 'stats'; ix.info = wb.SheetNames.length + '개 시트';
         show(); }).catch(function(e){ ix.role = 'skip'; ix.info = '읽기 실패: ' + e.message; show(); }); }
-    else if (ext === 'hwpx') FILES.push({file:f, name:f.name, role:'template'});
+    else if (ext === 'hwpx') { var ht = {file:f, name:f.name, role:'template'}; FILES.push(ht);
+      f.arrayBuffer().then(function(b){ return JSZip.loadAsync(b); }).then(function(z){ var sx = z.file('Contents/section0.xml'); return sx ? sx.async('string') : ''; }).then(function(x){
+        if (!isTplXml(x)) { ht.role = 'skip'; ht.info = '치수경제성 보고서 양식이 아님 — 기본 양식을 씀'; show(); } }).catch(function(){}); }
     else if (ext === 'dxf') { var it = {file:f, name:f.name, role:'pending'}; FILES.push(it); f.arrayBuffer().then(function(b){
         if (b.byteLength > 150 * 1048576) {   // 수백 MB 수치지도: 조각으로 읽고 등고선·표고점만 남김(건물·도로 등은 버림)
           it.info = '큰 파일 읽는 중(' + Math.round(b.byteLength / 1048576) + ' MB)…'; show();
@@ -2841,7 +2843,7 @@ function addFiles(list){
         if (/위치도|삽도|범람도/.test(f.name)) { it.role = 'locmap'; it.ov = LOCMAP.parseOverlay(it.text); it.info = '기존 위치도 — 선 ' + it.ov.lines.length + '개 · 레이어 ' + Object.keys(it.ov.layers).length + '개를 위성 위치도에 얹음'; show(); return; }
         if (/\n\s*계획지형\s*\r?\n/.test(it.text) && /\n\s*원지형\s*\r?\n/.test(it.text)) { it.role = 'xsec'; it.info = '횡단면도(원지형·계획지형) — 공사비 수량 산출'; show(); return; }
         it.dxf = GISR.parseDxf(it.text, {thin:1});
-        it.role = it.dxf.contours.length > 20 || /고도|수치|지형|등고/.test(f.name) ? 'terrain' : 'section';
+        it.role = it.dxf.contours.length > 20 || it.dxf.points.length > 20 || /고도|수치|지형|등고|표고/.test(f.name) ? 'terrain' : 'section';
         it.info = it.role === 'terrain' ? '등고선 ' + it.dxf.contours.length + ' · 표고점 ' + it.dxf.points.length : '선 ' + it.dxf.lines.length + ' · 문자 ' + it.dxf.texts.length;
         var closed = it.dxf.lines.filter(function(l){ var c = l.coords, n = c.length; return n > 3 && (l.closed || Math.hypot(c[0][0] - c[n - 1][0], c[0][1] - c[n - 1][1]) < 0.5); });
         if (it.role !== 'terrain' && closed.length && !it.dxf.texts.some(function(t){ return /지구/.test(t.text || ''); }) && (/유역|basin/i.test(f.name) || (closed.length <= 5 && closed.length === it.dxf.lines.length))) {
@@ -2997,9 +2999,10 @@ var COSTK = ['축제공','호안공','구조물공','부대공','제경비','보
 function norm(h){ return String(h || '').replace(/\(.*?\)/g, '').replace(/\s/g, ''); }
 function headerMap(rows, keys){
   for (var h = 0; h < Math.min(rows.length, 8); h++) {
-    var names = [];
-    for (var c = 0; c < 40; c++) { var s = ''; for (var r = 0; r <= h + 2 && r < rows.length; r++) s += ' ' + norm(rows[r][c]); names.push(s); }
-    var map = {}; keys.forEach(function(k){ var i = names.findIndex(function(n){ return k[1].test(n); }); if (i >= 0) map[k[0]] = i; });
+    // 머리행(0..h)에서 먼저 찾고, 없을 때만 다음 줄까지(2줄 머리글) — 자료 행 글자('축제좌안1' 등)에 걸리지 않게
+    var colText = function(upto){ var a = []; for (var c = 0; c < 40; c++) { var s = ''; for (var r = 0; r <= upto && r < rows.length; r++) s += ' ' + norm(rows[r][c]); a.push(s); } return a; };
+    var strict = colText(h), wide = colText(h + 1);
+    var map = {}; keys.forEach(function(k){ var i = strict.findIndex(function(n){ return k[1].test(n); }); if (i < 0) i = wide.findIndex(function(n){ return k[1].test(n); }); if (i >= 0) map[k[0]] = i; });
     if (map.name !== undefined && Object.keys(map).length >= 4) { var start = h + 1; while (start < rows.length && (/지구명|^\s*$/.test(String(rows[start][map.name] || '')) || /하천명|지구명|안별/.test(rows[start].join(' ')))) start++; return {map:map, start:start}; }
   }
   return null;
@@ -3256,6 +3259,18 @@ function pyCost(p, U){   // 백만원
   });
   return made;
 }
+// 홍수위 표: 시트 이름 '홍수위' 또는 머리행 '측점 | 20년 | 30년 …'
+function readWse(wb){
+  var wse = {};
+  var hs = wb.SheetNames.find(function(x){ return /홍수위/.test(x); }) || wb.SheetNames.find(function(x){
+    var r0 = (XLSX.utils.sheet_to_json(wb.Sheets[x], {header:1, defval:''})[0] || []).map(String);
+    return /측점|No/i.test(r0[0] || '') && r0.slice(1).filter(function(h){ return freqOf(h) || /^\s*\d{2,3}\s*$/.test(h); }).length >= 2; });
+  if (!hs) return wse;
+  var hr = XLSX.utils.sheet_to_json(wb.Sheets[hs], {header:1, defval:''}), head = hr[0] || [], cols = {};
+  head.forEach(function(h, c){ var t = freqOf(String(h)) || (/^\d{2,3}$/.test(String(h).trim()) ? +h : 0); if (t) cols[c] = t; });
+  hr.slice(1).forEach(function(row){ var k = GISR.stationKey(row[0]); if (!k) return; wse[k] = {}; Object.keys(cols).forEach(function(c){ if (row[c] !== '' && isFinite(+row[c])) wse[k][cols[c]] = +row[c]; }); });
+  return wse;
+}
 function readInput(buf, name){
   var wb = buf.SheetNames ? buf : XLSX.read(buf), p = {project:{name:name}, tables:JSON.parse(JSON.stringify(SAMPLE.tables)), districts:[], emds:{}, costs:{}, gis:[], wse:{}, settings:{}};
   var sn = wb.SheetNames.find(function(n){ return /지구|현황/.test(n); }) || wb.SheetNames[0];
@@ -3294,13 +3309,7 @@ function readInput(buf, name){
   }
   obj(/^GIS면적/).forEach(function(r){ var g = keyed(r); if (!g['지구명'] || !+g['빈도']) return; var cov = String(g['토지피복']).trim();
     p.gis.push({T:+g['빈도'], district:String(g['지구명']).trim(), depth:String(g['침수심']), cover:cov, cls:GIS.CLS[cov] || (['주거','논','밭','산업'].indexOf(cov) >= 0 ? cov : '기타'), area:+g['면적'] || 0}); });
-  // 홍수위: 측점 | 20 | 30 | ... (열 이름에 빈도 숫자)
-  var hs = wb.SheetNames.find(function(x){ return /홍수위/.test(x); });
-  if (hs) {
-    var hr = XLSX.utils.sheet_to_json(wb.Sheets[hs], {header:1, defval:''}), head = hr[0] || [], cols = {};
-    head.forEach(function(h, c){ var t = freqOf(String(h)) || (/^\d{2,3}$/.test(String(h).trim()) ? +h : 0); if (t) cols[c] = t; });
-    hr.slice(1).forEach(function(row){ var k = GISR.stationKey(row[0]); if (!k) return; p.wse[k] = {}; Object.keys(cols).forEach(function(c){ if (row[c] !== '') p.wse[k][cols[c]] = +row[c]; }); });
-  }
+  p.wse = readWse(wb);   // 홍수위: 측점 | 20 | 30 | ...
   // 통계연보(읍면동별 표) → 읍면동 시트 빈칸 채우기
   var SW = FILES.filter(function(f){ return f.role === 'stats' && f.wb; }).map(function(f){ return f.wb; });
   if (SW.length) {
@@ -3327,7 +3336,7 @@ function coverName(v){ var n = +v; return isFinite(n) && GIS.L2[n] ? GIS.L2[n] :
 function mapCoords(coords, f){ return coords.map(function(p){ return f(p); }); }
 function buildGis(){
   var Fz = FILES.find(function(f){ return f.role === 'zone'; }), Fd = FILES.find(function(f){ return f.role === 'district'; }), Fc = FILES.find(function(f){ return f.role === 'cover'; });
-  var Fs = FILES.find(function(f){ return f.role === 'section'; }), Fts = FILES.filter(function(f){ return f.role === 'terrain' && f.dxf; }), Ft = Fts.length ? {dxf:{contours:[].concat.apply([], Fts.map(function(f){ return f.dxf.contours; })), points:[].concat.apply([], Fts.map(function(f){ return f.dxf.points; }))}} : null;
+  var Fs = FILES.find(function(f){ return f.role === 'section' && (f.fc || f.dxf); }) || FILES.find(function(f){ return f.role === 'section'; }), Fts = FILES.filter(function(f){ return f.role === 'terrain' && f.dxf; }), Ft = Fts.length ? {dxf:{contours:[].concat.apply([], Fts.map(function(f){ return f.dxf.contours; })), points:[].concat.apply([], Fts.map(function(f){ return f.dxf.points; }))}} : null;
   var Ffl = FILES.filter(function(f){ return f.role === 'flood' && f.T; });
   var target = (Fz || Fd || {}).crs || (Fs && Fs.crs) || 'EPSG:5186'; KTARGET = target; KGRID = null; KINV = null;
   // 0) 측선·수치지도 먼저 (지구 자동 구획에도 씀)
@@ -3572,8 +3581,19 @@ function reproj(g, t){ var m = function(c){ return typeof c[0] === 'number' ? t(
 $('bRun').onclick = function(){
   $('bRun').disabled = true; $('log').textContent = ''; prog(3, '입력 확인');
   OUT = null; AHP = null; PREVIEW = null; $('res').style.display = 'none';   // 이전 결과(예시 등)가 보고서로 나가지 않게
-  var inp = FILES.find(function(f){ return f.role === 'input'; });
-  (inp ? inp.file.arrayBuffer().then(function(b){ P = readInput(b, inp.name); var en = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, x){ return n && x.indexOf(n) === i; }); log('지구 ' + P.districts.length + '개 · 읍면동 ' + (en.map(function(n){ return n + (P.emds[n] ? '' : '(통계 없음)'); }).join(', ') || '없음') + ' · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (en.some(function(n){ return !P.emds[n]; })) log('  ※ 읍면동 시트에 통계 줄이 없습니다. K-FRM은 건물·인구를 자동으로 불러오므로 계산되지만, 취약인구 비율·다차원법에는 읍면동 통계(또는 KOSIS 표)가 필요합니다.'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
+  var xl = FILES.filter(function(f){ return f.file && /\.xlsx?$/i.test(f.name) && (f.role === 'input' || f.role === 'section'); }), inp = xl[0] || FILES.find(function(f){ return f.role === 'input'; });
+  (inp ? Promise.all(xl.map(function(f){ return f.file.arrayBuffer().then(function(b){ try { return {f:f, p:readInput(b, f.name)}; } catch (e) { try { var w = readWse(XLSX.read(b)); if (Object.keys(w).length) return {f:f, p:{districts:[], wse:w, costs:{}, emds:{}}}; } catch (e2) {} log('⚠ ' + f.name + ' 읽기 실패: ' + e.message); return null; } }); })).then(function(rs){
+    rs = rs.filter(Boolean).sort(function(a, b){ return b.p.districts.length - a.p.districts.length; });
+    if (!rs.length) throw new Error('입력 엑셀을 읽지 못했습니다.');
+    P = rs[0].p; inp = rs[0].f;
+    rs.slice(1).forEach(function(r){
+      var q = r.p, nw = Object.keys(q.wse || {}).length, nc = 0;
+      Object.keys(q.wse || {}).forEach(function(k){ P.wse[k] = Object.assign(P.wse[k] || {}, q.wse[k]); });
+      Object.keys(q.costs || {}).forEach(function(k){ if (!P.costs[k]) { P.costs[k] = q.costs[k]; nc++; } });
+      Object.keys(q.emds || {}).forEach(function(k){ if (!P.emds[k]) P.emds[k] = q.emds[k]; });
+      log(r.f.name + ': ' + [nw ? '홍수위 ' + nw + '개 측점' : '', nc ? '공사비 ' + nc + '개 지구' : ''].filter(Boolean).join(' · ') + (nw || nc ? '를 합쳤습니다.' : ' — 합칠 내용 없음'));
+    });
+    return null; }).then(function(){ var en = P.districts.map(function(d){ return d.emd; }).filter(function(n, i, x){ return n && x.indexOf(n) === i; }); log('지구 ' + P.districts.length + '개 · 읍면동 ' + (en.map(function(n){ return n + (P.emds[n] ? '' : '(통계 없음)'); }).join(', ') || '없음') + ' · 공사비 ' + Object.keys(P.costs).length + '개 지구'); if (en.some(function(n){ return !P.emds[n]; })) log('  ※ 읍면동 시트에 통계 줄이 없습니다. K-FRM은 건물·인구를 자동으로 불러오므로 계산되지만, 취약인구 비율·다차원법에는 읍면동 통계(또는 KOSIS 표)가 필요합니다.'); if (P.statsNote) log(P.statsNote); if (P.costNote) log(P.costNote); }) : Promise.resolve())
   .then(tick).then(function(){
     prog(15, 'GIS 처리(하도버퍼링·구획 집계) 중…');
     var gis = function(){ var g = buildGis(); if (g) { P.gis = g; log('침수면적 ' + g.length + '행 산정'); } };
@@ -3718,9 +3738,17 @@ function dlBlocked(){
   n.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function saveWb(wb, name){ return save(new Blob([XLSX.write(wb, {type:'array', bookType:'xlsx'})]), name); }
+function isTplXml(x){ var t = String(x || '').replace(/<[^>]+>/g, '').replace(/\s/g, ''); return /편익/.test(t) && (/B\/C/.test(t) || /경제성/.test(t)) && /(피해\(보호\)면적|위험노출건물|편익의현재가치|현재가치편익)/.test(t); }
 function template(){
   var tf = FILES.find(function(x){ return x.role === 'template'; });
-  if (tf) return tf.file.arrayBuffer().then(function(b){ return JSZip.loadAsync(b).then(function(z){ return z.generateAsync({type:'base64'}); }); });
+  if (tf) return tf.file.arrayBuffer().then(function(b){ return JSZip.loadAsync(b).then(function(z){
+    var sx = z.file('Contents/section0.xml');
+    return (sx ? sx.async('string') : Promise.resolve('')).then(function(x){
+      if (isTplXml(x)) return z.generateAsync({type:'base64'});
+      log('⚠ ' + tf.name + '은(는) 치수경제성 보고서 양식이 아니어서 기본 양식을 씁니다.'); tf.role = 'skip'; show();
+      return template();
+    });
+  }); });
   if ((P && P.settings && P.settings.method === 'kfrm' || CUR.method === 'kfrm') && window.TPL_K_B64) return Promise.resolve(window.TPL_K_B64);   // K-FRM: 부록 5장 양식
   if (TPL) return Promise.resolve(TPL);
   if (window.TPL_B64) return Promise.resolve(TPL = window.TPL_B64);
